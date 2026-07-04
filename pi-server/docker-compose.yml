@@ -7,6 +7,8 @@ services:
       - "5001:5000"
     environment:
       TZ: Asia/Kolkata
+      FLASK_SECRET_KEY: dev-local-secret-change-on-pi
+      GOOGLE_REDIRECT_URI: http://localhost:5001/google/callback
     volumes:
       - ./app:/app
     restart: unless-stopped

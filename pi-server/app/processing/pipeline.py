@@ -8,10 +8,10 @@ from pathlib import Path
 from PIL import Image
 
 from config import BINARY_PACK_MODE, DITHER_METHOD, FRAME_HEIGHT, FRAME_WIDTH, PREVIEW_PATH
+from library import next_image_for_processing
 from processing.binary import pack_frame_buffer
 from processing.dither import indices_to_preview_rgb, quantize_to_palette
 from processing.resize import resize_for_display
-from processing.sources import find_latest_source_image
 from processing.types import DitherMethod, PackMode, ResizeMode
 
 logger = logging.getLogger(__name__)
@@ -74,19 +74,24 @@ def process_image_to_binary(
     return output_path
 
 
-def run_daily_processing(
+def run_library_processing(
     source_dir: str | Path,
     output_path: str | Path,
     width: int = FRAME_WIDTH,
     height: int = FRAME_HEIGHT,
     *,
     preview_path: str | Path | None = PREVIEW_PATH,
-) -> None:
-    """Process the newest source image and write the frame binary."""
-    source = find_latest_source_image(source_dir)
+    dither_method: DitherMethod | str = DITHER_METHOD,
+) -> Path | None:
+    """
+    Advance the library rotation, process the next image, and write outputs.
+
+    Returns the source path, or None if the library is empty.
+    """
+    source = next_image_for_processing(source_dir)
     if source is None:
-        logger.warning("No source images found in %s", source_dir)
-        return
+        logger.warning("No source images in library at %s", source_dir)
+        return None
 
     process_image_to_binary(
         source,
@@ -94,4 +99,6 @@ def run_daily_processing(
         width=width,
         height=height,
         preview_path=preview_path,
+        dither_method=dither_method,
     )
+    return source

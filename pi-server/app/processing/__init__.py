@@ -20,8 +20,9 @@ from processing.binary import (
 )
 from processing.color import build_palette_lab, nearest_palette_indices, rgb_to_lab_cie
 from processing.dither import indices_to_preview_rgb, quantize_to_palette
-from processing.pipeline import process_image_to_binary, run_daily_processing
-from processing.resize import resize_cover, resize_contain, resize_for_display, resize_stretch
+from processing.pipeline import process_image_to_binary, run_library_processing
+from processing.focal_crop import resize_cover_focal, resize_smart_focal
+from processing.resize import resize_contain, resize_cover, resize_for_display, resize_stretch
 from processing.sources import find_latest_source_image
 from processing.types import DitherMethod, PackMode, ResizeMode
 
@@ -39,11 +40,13 @@ __all__ = [
     "process_image_to_binary",
     "quantize_to_palette",
     "resize_cover",
+    "resize_cover_focal",
+    "resize_smart_focal",
     "resize_contain",
     "resize_for_display",
     "resize_stretch",
     "rgb_to_lab_cie",
-    "run_daily_processing",
+    "run_library_processing",
     "unpack_frame_buffer",
     "unpack_indices_byte",
     "unpack_indices_packed",
