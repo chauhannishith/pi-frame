@@ -9,11 +9,13 @@ env/
 
 # Environment and secrets
 .env
+pi-server/.env
 
 # Generated runtime output
 pi-server/app/latest_frame.bin
 pi-server/app/preview.png
 pi-server/app/uploads/
+pi-server/app/data/
 
 # Source images (user-provided, not committed)
 pi-server/app/source_images/*
