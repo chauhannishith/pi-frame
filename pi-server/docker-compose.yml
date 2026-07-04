@@ -4,11 +4,13 @@ services:
     container_name: pi-frame
     ports:
       # Host 5001 avoids macOS AirPlay Receiver which binds to 5000
-      - "5001:5000"
+      - '5001:5000'
+    env_file:
+      - .env
     environment:
       TZ: Asia/Kolkata
-      FLASK_SECRET_KEY: dev-local-secret-change-on-pi
-      GOOGLE_REDIRECT_URI: http://localhost:5001/google/callback
+      # FLASK_SECRET_KEY: dev-local-secret-change-on-pi
+      # GOOGLE_REDIRECT_URI: http://localhost:5001/google/callback
     volumes:
       - ./app:/app
     restart: unless-stopped

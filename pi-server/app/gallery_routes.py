@@ -8,6 +8,7 @@ from flask import Blueprint, abort, redirect, request, send_file, url_for
 
 from config import DITHER_METHOD, SOURCE_IMAGES_DIR
 from frame_service import change_frame, process_specific_image
+from user_errors import format_user_error
 from library import (
     add_to_library,
     delete_from_library,
@@ -374,7 +375,10 @@ def gallery_delete(filename: str):
 
 @gallery_bp.route("/gallery/change", methods=["POST"])
 def gallery_change():
-    name = change_frame()
+    try:
+        name = change_frame()
+    except Exception as exc:
+        return redirect(url_for("gallery.gallery_index", err=f"Frame change failed: {format_user_error(exc)}"))
     if name is None:
         return redirect(url_for("gallery.gallery_index", err="Library is empty — upload an image first."))
     return redirect(url_for("gallery.gallery_index", msg=f"Frame changed to {name}"))
@@ -392,7 +396,10 @@ def gallery_view(filename: str):
         dither_method = "floyd_steinberg"
 
     if request.method == "POST":
-        process_specific_image(path, dither_method=dither_method)
+        try:
+            process_specific_image(path, dither_method=dither_method)
+        except Exception as exc:
+            return redirect(url_for("gallery.gallery_index", err=f"Preview failed: {format_user_error(exc)}"))
         return redirect(url_for(
             "gallery.gallery_view",
             filename=filename,

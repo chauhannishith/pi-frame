@@ -34,6 +34,7 @@ from library import resolve_library_file
 from preview_views import DITHER_OPTIONS, render_image_view_page
 from processing import process_image_to_binary
 from processing.pipeline import run_library_processing
+from user_errors import format_user_error
 
 logging.basicConfig(
     level=logging.INFO,
@@ -171,9 +172,9 @@ def upload():
                 dither_method=dither_method,
             )
         return redirect(f"/preview?method={dither_method}&generated=1", code=303)
-    except Exception:
+    except Exception as exc:
         logger.exception("Manual upload processing failed")
-        return _render_upload_form("Processing failed.", dither_method=dither_method)
+        return _render_upload_form(f"Processing failed: {format_user_error(exc)}", dither_method=dither_method)
     finally:
         temp_path.unlink(missing_ok=True)
 

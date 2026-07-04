@@ -37,4 +37,4 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get(
     "GOOGLE_REDIRECT_URI", "http://localhost:5001/google/callback"
 )
-GOOGLE_PHOTOS_SCOPES = ["https://www.googleapis.com/auth/photoslibrary.readonly"]
+GOOGLE_PHOTOS_SCOPES = ["https://www.googleapis.com/auth/photospicker.mediaitems.readonly"]
