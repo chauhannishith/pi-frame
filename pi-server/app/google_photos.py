@@ -194,7 +194,12 @@ def _auth_headers(creds: Credentials) -> dict:
     return {"Authorization": f"Bearer {creds.token}"}
 
 
-def _session_id_from_name(name: str) -> str:
+def _session_id_from_response(session: dict) -> str:
+    session_id = session.get("id")
+    if session_id:
+        return str(session_id)
+
+    name = session.get("name", "")
     prefix = "sessions/"
     if name.startswith(prefix):
         return name[len(prefix):]
@@ -333,7 +338,7 @@ def start_photo_pick(token_path: str | Path | None = None) -> tuple[str, str]:
         raise RuntimeError("Google Photos not connected — visit /google/connect first")
 
     session = create_picker_session(creds)
-    session_id = _session_id_from_name(session.get("name", ""))
+    session_id = _session_id_from_response(session)
     picker_uri = session.get("pickerUri")
     if not session_id or not picker_uri:
         raise RuntimeError(f"Unexpected picker session response: {session}")
