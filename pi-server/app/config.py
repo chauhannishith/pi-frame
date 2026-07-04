@@ -1,7 +1,9 @@
 import os
 
 LATEST_FRAME_PATH = os.environ.get("LATEST_FRAME_PATH", "/app/latest_frame.bin")
+PREVIEW_PATH = os.environ.get("PREVIEW_PATH", "/app/preview.png")
 SOURCE_IMAGES_DIR = os.environ.get("SOURCE_IMAGES_DIR", "/app/source_images")
+UPLOAD_TEMP_DIR = os.environ.get("UPLOAD_TEMP_DIR", "/app/uploads")
 
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", "800"))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", "480"))

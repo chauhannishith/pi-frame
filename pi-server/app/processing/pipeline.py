@@ -7,9 +7,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from config import BINARY_PACK_MODE, DITHER_METHOD, FRAME_HEIGHT, FRAME_WIDTH
+from config import BINARY_PACK_MODE, DITHER_METHOD, FRAME_HEIGHT, FRAME_WIDTH, PREVIEW_PATH
 from processing.binary import pack_frame_buffer
-from processing.dither import quantize_to_palette
+from processing.dither import indices_to_preview_rgb, quantize_to_palette
 from processing.resize import resize_for_display
 from processing.sources import find_latest_source_image
 from processing.types import DitherMethod, PackMode, ResizeMode
@@ -23,6 +23,7 @@ def process_image_to_binary(
     width: int = FRAME_WIDTH,
     height: int = FRAME_HEIGHT,
     *,
+    preview_path: str | Path | None = None,
     resize_mode: ResizeMode | str = ResizeMode.COVER,
     dither_method: DitherMethod | str = DITHER_METHOD,
     pack_mode: PackMode | str = BINARY_PACK_MODE,
@@ -31,7 +32,8 @@ def process_image_to_binary(
     """
     Full pipeline: load → resize → quantize → write raw binary frame buffer.
 
-    Returns the output path.
+    Optionally writes an RGB preview PNG showing the dithered result.
+    Returns the binary output path.
     """
     source_path = Path(source)
     output_path = Path(output)
@@ -61,8 +63,14 @@ def process_image_to_binary(
     frame_bytes = pack_frame_buffer(indices, mode=pack_mode)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_bytes(frame_bytes)
-
     logger.info("Wrote %d bytes to %s", len(frame_bytes), output_path)
+
+    if preview_path is not None:
+        preview_file = Path(preview_path)
+        preview_rgb = indices_to_preview_rgb(indices, palette_rgb)
+        Image.fromarray(preview_rgb, mode="RGB").save(preview_file)
+        logger.info("Wrote preview to %s", preview_file)
+
     return output_path
 
 
@@ -71,6 +79,8 @@ def run_daily_processing(
     output_path: str | Path,
     width: int = FRAME_WIDTH,
     height: int = FRAME_HEIGHT,
+    *,
+    preview_path: str | Path | None = PREVIEW_PATH,
 ) -> None:
     """Process the newest source image and write the frame binary."""
     source = find_latest_source_image(source_dir)
@@ -78,4 +88,10 @@ def run_daily_processing(
         logger.warning("No source images found in %s", source_dir)
         return
 
-    process_image_to_binary(source, output_path, width=width, height=height)
+    process_image_to_binary(
+        source,
+        output_path,
+        width=width,
+        height=height,
+        preview_path=preview_path,
+    )
