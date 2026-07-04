@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from palette import EINK_PALETTE_RGB, NUM_COLORS
+from palette import EINK_PALETTE_RGB, NUM_COLORS, PALETTE_NAMES
 from processing import (
     ResizeMode,
     build_palette_lab,
@@ -64,18 +64,22 @@ class TestPaletteQuantization:
 
 
 class TestNearestPaletteIndices:
-    def test_cie_lab_distance_picks_closest_swatch(self):
-        palette_lab = build_palette_lab()
+    def test_perceptual_distance_picks_closest_swatch(self):
         white_rgb = np.tile(EINK_PALETTE_RGB[1], (2, 2, 1))
-        indices = nearest_palette_indices(white_rgb, EINK_PALETTE_RGB, palette_lab)
+        indices = nearest_palette_indices(white_rgb, EINK_PALETTE_RGB)
         assert np.all(indices == 1)
 
     def test_pure_red_picks_red_swatch(self):
-        palette_lab = build_palette_lab()
         red_rgb = np.full((2, 2, 3), 255.0, dtype=np.float32)
         red_rgb[..., 1:] = 0.0
-        indices = nearest_palette_indices(red_rgb, EINK_PALETTE_RGB, palette_lab)
+        indices = nearest_palette_indices(red_rgb, EINK_PALETTE_RGB)
         assert np.all(indices == 4)
+
+    def test_warm_skin_tone_avoids_green(self):
+        """Perceptual weights should not snap warm skin tones to green."""
+        skin_rgb = np.tile(np.array([255, 200, 180], dtype=np.float32), (4, 4, 1))
+        indices = nearest_palette_indices(skin_rgb, EINK_PALETTE_RGB)
+        assert np.all(indices != PALETTE_NAMES.index("green"))
 
 
 class TestBinaryPacking:

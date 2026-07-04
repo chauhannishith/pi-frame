@@ -18,6 +18,9 @@ FLASK_PORT = int(os.environ.get("FLASK_PORT", "5000"))
 # Quantization: "floyd_steinberg" or "atkinson"
 DITHER_METHOD = os.environ.get("DITHER_METHOD", "floyd_steinberg")
 
+# Floyd-Steinberg error damping (0.0–1.0) — reduces color bleed on skin tones
+FLOYD_STEINBERG_ERROR_DAMPING = float(os.environ.get("FLOYD_STEINBERG_ERROR_DAMPING", "0.80"))
+
 # Binary layout: "packed" (3-bit, 8 pixels / 3 bytes) or "byte" (1 index per byte)
 BINARY_PACK_MODE = os.environ.get("BINARY_PACK_MODE", "byte")
 

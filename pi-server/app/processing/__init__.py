@@ -2,7 +2,7 @@
 Image processing package for the 6-color e-ink frame.
 
 Modules:
-  color    — CIE L*a*b* conversion and palette matching
+  color    — perceptual palette matching (ITU-R BT.601 weights)
   resize   — scale, crop, and letterbox to display dimensions
   dither   — palette quantization with error diffusion
   binary   — raw frame buffer packing

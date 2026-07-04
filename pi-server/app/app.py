@@ -42,6 +42,8 @@ processing_lock = threading.Lock()
 
 UPLOAD_ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
+UPLOAD_DITHER_OPTIONS = ("floyd_steinberg", "atkinson")
+
 UPLOAD_FORM_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -66,7 +68,21 @@ UPLOAD_FORM_HTML = """<!DOCTYPE html>
       border-radius: 8px;
       background: #fafafa;
     }
-    input[type="file"] { display: block; width: 100%; margin-bottom: 1rem; }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: #444;
+    }
+    input[type="file"],
+    select {
+      display: block;
+      width: 100%;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+    }
+    select { padding: 0.45rem; border-radius: 6px; border: 1px solid #ccc; }
     button {
       background: #222;
       color: #fff;
@@ -92,17 +108,80 @@ UPLOAD_FORM_HTML = """<!DOCTYPE html>
   <h1>Manual image upload</h1>
   <p>Upload a JPG or PNG to preview 6-color dithering at 800×480.</p>
   <form method="post" enctype="multipart/form-data">
-    <input type="file" name="image" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+    <label for="image">Image file</label>
+    <input id="image" type="file" name="image" accept=".jpg,.jpeg,.png,image/jpeg,image/png" required>
+
+    <label for="dither_method">Dithering method</label>
+    <select id="dither_method" name="dither_method">
+      <option value="floyd_steinberg"{fs_selected}>Floyd-Steinberg</option>
+      <option value="atkinson"{atkinson_selected}>Atkinson</option>
+    </select>
+
     <button type="submit">Process &amp; preview</button>
   </form>
   {error_block}
 </body>
 </html>"""
 
+PREVIEW_PAGE_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pi-frame preview</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 860px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      color: #222;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
+    p { color: #555; font-size: 0.9rem; }
+    .meta {
+      margin: 1rem 0;
+      padding: 0.75rem 1rem;
+      background: #f4f4f4;
+      border-radius: 6px;
+      font-size: 0.9rem;
+    }
+    img {
+      display: block;
+      max-width: 100%;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    a { color: #222; }
+  </style>
+</head>
+<body>
+  <h1>Dithered preview</h1>
+  <p>800×480 · 6-color palette</p>
+  <div class="meta">Method: <strong>{method_label}</strong></div>
+  <img src="/preview.png" alt="Dithered preview">
+  <p><a href="/upload">← Upload another image</a></p>
+</body>
+</html>"""
 
-def _render_upload_form(error: str | None = None) -> str:
+
+def _render_upload_form(error: str | None = None, dither_method: str = "floyd_steinberg") -> str:
+    if dither_method not in UPLOAD_DITHER_OPTIONS:
+        dither_method = "floyd_steinberg"
     error_block = f'<div class="error">{error}</div>' if error else ""
-    return UPLOAD_FORM_HTML.replace("{error_block}", error_block)
+    html = UPLOAD_FORM_HTML
+    html = html.replace("{error_block}", error_block)
+    html = html.replace("{fs_selected}", ' selected' if dither_method == "floyd_steinberg" else "")
+    html = html.replace("{atkinson_selected}", ' selected' if dither_method == "atkinson" else "")
+    return html
+
+
+def _dither_method_label(method: str) -> str:
+    labels = {
+        "floyd_steinberg": "Floyd-Steinberg",
+        "atkinson": "Atkinson",
+    }
+    return labels.get(method, method)
 
 
 def _allowed_upload(filename: str) -> bool:
@@ -144,12 +223,17 @@ def upload():
         return _render_upload_form()
 
     uploaded = request.files.get("image")
+    dither_method = request.form.get("dither_method", "floyd_steinberg")
+
     if uploaded is None or not uploaded.filename:
-        return _render_upload_form("No file selected.")
+        return _render_upload_form("No file selected.", dither_method=dither_method)
 
     filename = secure_filename(uploaded.filename)
     if not filename or not _allowed_upload(filename):
-        return _render_upload_form("Only JPG and PNG files are supported.")
+        return _render_upload_form("Only JPG and PNG files are supported.", dither_method=dither_method)
+
+    if dither_method not in UPLOAD_DITHER_OPTIONS:
+        return _render_upload_form("Invalid dithering method selected.", dither_method="floyd_steinberg")
 
     temp_dir = Path(UPLOAD_TEMP_DIR)
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -157,7 +241,7 @@ def upload():
 
     try:
         uploaded.save(temp_path)
-        logger.info("Manual upload saved to %s", temp_path)
+        logger.info("Manual upload saved to %s (dither=%s)", temp_path, dither_method)
 
         with processing_lock:
             process_image_to_binary(
@@ -166,14 +250,18 @@ def upload():
                 width=FRAME_WIDTH,
                 height=FRAME_HEIGHT,
                 preview_path=PREVIEW_PATH,
+                dither_method=dither_method,
             )
 
         logger.info("Manual upload processed — redirecting to preview")
-        return redirect("/preview", code=303)
+        return redirect(f"/preview?method={dither_method}", code=303)
 
     except Exception:
         logger.exception("Manual upload processing failed")
-        return _render_upload_form("Processing failed. Check server logs for details.")
+        return _render_upload_form(
+            "Processing failed. Check server logs for details.",
+            dither_method=dither_method,
+        )
 
     finally:
         temp_path.unlink(missing_ok=True)
@@ -181,7 +269,17 @@ def upload():
 
 @app.route("/preview", methods=["GET"])
 def preview():
-    """Serve the dithered RGB preview image for browser inspection."""
+    """HTML page showing the dithered preview and method used."""
+    if not os.path.isfile(PREVIEW_PATH):
+        abort(404, description="No preview available yet — upload an image first")
+
+    method = request.args.get("method", "floyd_steinberg")
+    return PREVIEW_PAGE_HTML.replace("{method_label}", _dither_method_label(method))
+
+
+@app.route("/preview.png", methods=["GET"])
+def preview_image():
+    """Serve the raw dithered preview PNG."""
     if not os.path.isfile(PREVIEW_PATH):
         abort(404, description="No preview available yet — upload an image first")
 
