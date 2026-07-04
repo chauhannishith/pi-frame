@@ -2,7 +2,7 @@
 
 from PIL import Image
 
-from processing.focal_crop import resize_cover_focal
+from processing.focal_crop import resize_smart_focal
 from processing.types import ResizeMode
 
 
@@ -47,7 +47,7 @@ def resize_for_display(
     """
     Resize source image to target display dimensions.
 
-    cover   — cover-scale + face-aware vertical crop (default for photos)
+    cover   — orientation-aware face focal crop + adaptive padding (default)
     contain — scale to fit inside, letterbox with white
     stretch — ignore aspect ratio
     """
@@ -58,4 +58,4 @@ def resize_for_display(
         return resize_stretch(src, width, height)
     if mode == ResizeMode.CONTAIN:
         return resize_contain(src, width, height)
-    return resize_cover_focal(src, width, height)
+    return resize_smart_focal(src, width, height)

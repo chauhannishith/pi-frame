@@ -1,4 +1,4 @@
-"""Face-aware vertical crop positioning for cover-scale resizing."""
+"""Orientation-aware resize, crop, and pad for the 800×480 e-ink frame."""
 
 from __future__ import annotations
 
@@ -9,10 +9,14 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from processing.color import PERCEPTUAL_CHANNEL_WEIGHTS
+
 logger = logging.getLogger(__name__)
 
-# Vertical fallback when no face is found: 35% into the available crop range
+# Vertical fallback when no face is found (landscape horizontal crop uses center)
 LANDSCAPE_FALLBACK_RATIO = 0.35
+PORTRAIT_VERT_OVERSCALE = 1.08
+LUMINANCE_PAD_THRESHOLD = 127
 
 _haar_cascade: cv2.CascadeClassifier | None = None
 
@@ -25,19 +29,32 @@ def _get_face_detector() -> cv2.CascadeClassifier:
     return _haar_cascade
 
 
-def cover_scale_size(src_w: int, src_h: int, target_w: int, target_h: int) -> tuple[int, int, float]:
-    """Return scaled dimensions and uniform cover scale factor."""
-    scale = max(target_w / src_w, target_h / src_h)
+def scale_to_height(src_w: int, src_h: int, target_h: int) -> tuple[int, int, float]:
+    """Uniform scale so the image height matches target_h."""
+    scale = target_h / src_h
     new_w = max(1, int(round(src_w * scale)))
     new_h = max(1, int(round(src_h * scale)))
     return new_w, new_h, scale
 
 
-def detect_face_centers_y(rgb_image: np.ndarray) -> list[float]:
-    """
-    Detect frontal faces and return their vertical centers in pixel coordinates.
+def average_luminance(rgb: np.ndarray) -> float:
+    """Perceptual mean brightness in [0, 255]."""
+    flat = rgb.reshape(-1, 3).astype(np.float32)
+    return float(np.mean(flat @ PERCEPTUAL_CHANNEL_WEIGHTS))
 
-    rgb_image: HxWx3 uint8 RGB array
+
+def adaptive_pad_color(rgb: np.ndarray) -> tuple[int, int, int]:
+    """White padding for bright photos, black for dark."""
+    if average_luminance(rgb) > LUMINANCE_PAD_THRESHOLD:
+        return (255, 255, 255)
+    return (0, 0, 0)
+
+
+def detect_face_centers(rgb_image: np.ndarray) -> list[tuple[float, float]]:
+    """
+    Detect frontal faces and return (center_x, center_y) in pixel coordinates.
+
+    rgb_image: H×W×3 uint8 RGB array
     """
     gray = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
     detector = _get_face_detector()
@@ -50,8 +67,8 @@ def detect_face_centers_y(rgb_image: np.ndarray) -> list[float]:
     if len(faces) == 0:
         return []
 
-    centers = [float(y + h / 2.0) for x, y, w, h in faces]
-    logger.debug("Detected %d face(s) at y=%s", len(centers), centers)
+    centers = [(float(x + w / 2.0), float(y + h / 2.0)) for x, y, w, h in faces]
+    logger.debug("Detected %d face(s) at %s", len(centers), centers)
     return centers
 
 
@@ -62,12 +79,7 @@ def compute_vertical_crop_top(
     focal_y: float | None = None,
     fallback_ratio: float = LANDSCAPE_FALLBACK_RATIO,
 ) -> int:
-    """
-    Compute the top coordinate for a crop_h window inside a scaled_h image.
-
-    focal_y      — vertical center to protect (face midpoint on scaled image)
-    fallback_ratio — position in [0, 1] along available range when no face
-    """
+    """Top coordinate for a crop_h window inside a scaled_h image."""
     if scaled_h <= crop_h:
         return 0
 
@@ -80,39 +92,145 @@ def compute_vertical_crop_top(
     return max(0, min(top, max_top))
 
 
-def compute_focal_crop_box(
+def compute_horizontal_crop_left(
     scaled_w: int,
-    scaled_h: int,
+    crop_w: int,
+    *,
+    focal_x: float | None = None,
+    fallback_ratio: float = 0.5,
+) -> int:
+    """Left coordinate for a crop_w window inside a scaled_w image."""
+    if scaled_w <= crop_w:
+        return 0
+
+    max_left = scaled_w - crop_w
+    if focal_x is not None:
+        left = int(round(focal_x - crop_w / 2.0))
+    else:
+        left = int(round(max_left * fallback_ratio))
+
+    return max(0, min(left, max_left))
+
+
+def compute_paste_x(
+    canvas_w: int,
+    content_w: int,
+    *,
+    focal_x: float | None = None,
+) -> int:
+    """Horizontal paste offset that centers content, or the face, on the canvas."""
+    max_x = canvas_w - content_w
+    if max_x <= 0:
+        return 0
+
+    if focal_x is not None:
+        paste_x = int(round(canvas_w / 2.0 - focal_x))
+    else:
+        paste_x = max_x // 2
+
+    return max(0, min(paste_x, max_x))
+
+
+def _mean_axis(values: list[float]) -> float | None:
+    return float(np.mean(values)) if values else None
+
+
+def _layout_landscape(
+    image: Image.Image,
     target_w: int,
     target_h: int,
-    face_centers_y: list[float],
-) -> tuple[int, int, int, int]:
-    """Return PIL crop box (left, top, right, bottom) for the target viewport."""
-    focal_y = float(np.mean(face_centers_y)) if face_centers_y else None
-    left = max(0, (scaled_w - target_w) // 2)
-    top = compute_vertical_crop_top(scaled_h, target_h, focal_y=focal_y)
-    return left, top, left + target_w, top + target_h
-
-
-def resize_cover_focal(image: Image.Image, width: int, height: int) -> Image.Image:
+    original_rgb: np.ndarray,
+) -> Image.Image:
     """
-    Cover-scale to maximize real estate, then crop with face-aware vertical shift.
+    Landscape (width > height): scale to target_h, then crop or pad to target_w.
 
-    Horizontal crop stays centered. Vertical crop centers on detected faces when
-    present; otherwise uses a top-weighted fallback for landscapes.
+    Face detection shifts the horizontal viewport; vertical dimension is already exact.
+    """
+    src_w, src_h = image.size
+    new_w, new_h, _ = scale_to_height(src_w, src_h, target_h)
+    resized = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    rgb = np.array(resized, dtype=np.uint8)
+
+    faces = detect_face_centers(rgb)
+    focal_x = _mean_axis([cx for cx, _ in faces])
+
+    if faces:
+        logger.info("Landscape layout: aligning to %d detected face(s)", len(faces))
+    else:
+        logger.info("Landscape layout: no faces — center crop")
+
+    if new_w > target_w:
+        left = compute_horizontal_crop_left(new_w, target_w, focal_x=focal_x)
+        return resized.crop((left, 0, left + target_w, target_h))
+
+    if new_w == target_w:
+        return resized
+
+    pad_color = adaptive_pad_color(original_rgb)
+    canvas = Image.new("RGB", (target_w, target_h), pad_color)
+    paste_x = compute_paste_x(target_w, new_w, focal_x=focal_x)
+    canvas.paste(resized, (paste_x, 0))
+    logger.info("Landscape layout: padded %d px with %s", target_w - new_w, pad_color)
+    return canvas
+
+
+def _layout_portrait_pad(
+    image: Image.Image,
+    target_w: int,
+    target_h: int,
+    original_rgb: np.ndarray,
+) -> Image.Image:
+    """
+    Portrait / square / tall: height-fit with slight vertical crop, adaptive side padding.
+
+    Scales taller than the frame to allow a face-aware vertical trim, then letterboxes
+    onto an 800×480 canvas without zooming to fill the full width.
+    """
+    src_w, src_h = image.size
+    overscaled_h = int(round(target_h * PORTRAIT_VERT_OVERSCALE))
+    scale = overscaled_h / src_h
+    new_w = max(1, int(round(src_w * scale)))
+    new_h = max(1, int(round(src_h * scale)))
+
+    resized = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    rgb = np.array(resized, dtype=np.uint8)
+
+    faces = detect_face_centers(rgb)
+    focal_y = _mean_axis([cy for _, cy in faces])
+    focal_x = _mean_axis([cx for cx, _ in faces])
+
+    top = compute_vertical_crop_top(new_h, target_h, focal_y=focal_y)
+    cropped = resized.crop((0, top, new_w, top + target_h))
+
+    if faces:
+        logger.info("Portrait layout: %d face(s), vertical crop top=%d", len(faces), top)
+    else:
+        logger.info("Portrait layout: no faces — top-weighted vertical crop top=%d", top)
+
+    pad_color = adaptive_pad_color(original_rgb)
+    canvas = Image.new("RGB", (target_w, target_h), pad_color)
+    adjusted_focal_x = (focal_x - 0) if focal_x is not None else None
+    paste_x = compute_paste_x(target_w, new_w, focal_x=adjusted_focal_x)
+    canvas.paste(cropped, (paste_x, 0))
+    logger.info("Portrait layout: padded %d px with %s", target_w - new_w, pad_color)
+    return canvas
+
+
+def resize_smart_focal(image: Image.Image, width: int, height: int) -> Image.Image:
+    """
+    Fit any aspect ratio to the display with orientation-specific rules.
+
+    landscape (w > h) — height-fit, face-aware horizontal crop/pad
+    portrait/square/tall (h >= w) — hybrid vertical crop + adaptive side padding
     """
     src = image.convert("RGB")
     src_w, src_h = src.size
-    new_w, new_h, _ = cover_scale_size(src_w, src_h, width, height)
+    original_rgb = np.array(src, dtype=np.uint8)
 
-    resized = src.resize((new_w, new_h), Image.Resampling.LANCZOS)
-    rgb = np.array(resized, dtype=np.uint8)
+    if src_w > src_h:
+        return _layout_landscape(src, width, height, original_rgb)
+    return _layout_portrait_pad(src, width, height, original_rgb)
 
-    face_centers_y = detect_face_centers_y(rgb)
-    if face_centers_y:
-        logger.info("Focal crop: aligning to %d detected face(s)", len(face_centers_y))
-    else:
-        logger.info("Focal crop: no faces — using %.0f%% top-weighted fallback", LANDSCAPE_FALLBACK_RATIO * 100)
 
-    crop_box = compute_focal_crop_box(new_w, new_h, width, height, face_centers_y)
-    return resized.crop(crop_box)
+# Backward-compatible alias for callers/tests
+resize_cover_focal = resize_smart_focal
