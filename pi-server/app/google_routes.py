@@ -137,7 +137,7 @@ def google_fetch():
         if library_only:
             return redirect(url_for("gallery.gallery_index", msg=f"Imported {dest.name} from Google Photos"))
         name = process_specific_image(dest)
-        return redirect(f"/preview?source={name}")
+        return redirect(url_for("gallery.gallery_view", filename=name, generated=1))
     except Exception as exc:
         return redirect(url_for("google.google_index", err=str(exc)))
 

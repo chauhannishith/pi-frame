@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from flask import Flask, abort, redirect, request, send_file
+from flask import Flask, abort, redirect, request, send_file, url_for
 from gallery_routes import gallery_bp
 from google_routes import google_bp
 from werkzeug.utils import secure_filename
@@ -30,6 +30,8 @@ from config import (
     UPLOAD_TEMP_DIR,
 )
 from frame_service import processing_lock
+from library import resolve_library_file
+from preview_views import DITHER_OPTIONS, render_image_view_page
 from processing import process_image_to_binary
 from processing.pipeline import run_library_processing
 
@@ -47,7 +49,6 @@ app.register_blueprint(gallery_bp)
 app.register_blueprint(google_bp)
 
 UPLOAD_ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png"}
-UPLOAD_DITHER_OPTIONS = ("floyd_steinberg", "atkinson")
 
 UPLOAD_FORM_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -89,46 +90,15 @@ UPLOAD_FORM_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
-PREVIEW_PAGE_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>pi-frame preview</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-    nav { margin-bottom: 1rem; font-size: 0.9rem; }
-    nav a { margin-right: 1rem; }
-    h1 { font-size: 1.25rem; margin-bottom: 0.25rem; }
-    p { color: #555; font-size: 0.9rem; }
-    .meta { margin: 1rem 0; padding: 0.75rem 1rem; background: #f4f4f4; border-radius: 6px; font-size: 0.9rem; }
-    img { display: block; max-width: 100%; border: 1px solid #ddd; border-radius: 4px; }
-    a { color: #222; }
-  </style>
-</head>
-<body>
-  <nav><a href="/gallery">Gallery</a><a href="/google">Google Photos</a><a href="/upload">Quick test</a></nav>
-  <h1>Dithered preview</h1>
-  <p>800×480 · 6-color palette</p>
-  <div class="meta">Source: <strong>{source_label}</strong> · Method: <strong>{method_label}</strong></div>
-  <img src="/preview.png" alt="Dithered preview">
-  <p><a href="/gallery">← Back to gallery</a></p>
-</body>
-</html>"""
-
 
 def _render_upload_form(error: str | None = None, dither_method: str = "floyd_steinberg") -> str:
-    if dither_method not in UPLOAD_DITHER_OPTIONS:
+    if dither_method not in DITHER_OPTIONS:
         dither_method = "floyd_steinberg"
     error_block = f'<div class="error">{error}</div>' if error else ""
     html = UPLOAD_FORM_HTML.replace("{error_block}", error_block)
     html = html.replace("{fs_selected}", ' selected' if dither_method == "floyd_steinberg" else "")
     html = html.replace("{atkinson_selected}", ' selected' if dither_method == "atkinson" else "")
     return html
-
-
-def _dither_method_label(method: str) -> str:
-    return {"floyd_steinberg": "Floyd-Steinberg", "atkinson": "Atkinson", "default": "Default"}.get(method, method)
 
 
 def _allowed_upload(filename: str) -> bool:
@@ -182,7 +152,7 @@ def upload():
     if not filename or not _allowed_upload(filename):
         return _render_upload_form("Only JPG and PNG files are supported.", dither_method=dither_method)
 
-    if dither_method not in UPLOAD_DITHER_OPTIONS:
+    if dither_method not in DITHER_OPTIONS:
         return _render_upload_form("Invalid dithering method.", dither_method="floyd_steinberg")
 
     temp_dir = Path(UPLOAD_TEMP_DIR)
@@ -200,7 +170,7 @@ def upload():
                 preview_path=PREVIEW_PATH,
                 dither_method=dither_method,
             )
-        return redirect(f"/preview?method={dither_method}", code=303)
+        return redirect(f"/preview?method={dither_method}&generated=1", code=303)
     except Exception:
         logger.exception("Manual upload processing failed")
         return _render_upload_form("Processing failed.", dither_method=dither_method)
@@ -210,15 +180,33 @@ def upload():
 
 @app.route("/preview", methods=["GET"])
 def preview():
-    if not os.path.isfile(PREVIEW_PATH):
-        abort(404, description="No preview available yet — upload an image first")
+    """Show latest dithered preview, or redirect to gallery view for library images."""
+    source = request.args.get("source")
+    if source and resolve_library_file(SOURCE_IMAGES_DIR, source):
+        return redirect(url_for(
+            "gallery.gallery_view",
+            filename=source,
+            generated=request.args.get("generated", "1"),
+            method=request.args.get("method", "default"),
+        ))
 
-    method = request.args.get("method", "default")
-    source = request.args.get("source", "—")
-    html = PREVIEW_PAGE_HTML
-    html = html.replace("{method_label}", _dither_method_label(method))
-    html = html.replace("{source_label}", source)
-    return html
+    if request.args.get("generated") != "1" and not os.path.isfile(PREVIEW_PATH):
+        abort(404, description="No preview available yet — generate one from the gallery")
+
+    method = request.args.get("method", "floyd_steinberg")
+    if method not in DITHER_OPTIONS:
+        method = "floyd_steinberg"
+
+    return render_image_view_page(
+        source_name=source or "Latest preview",
+        form_action="/upload",
+        dither_method=method,
+        show_dithered=os.path.isfile(PREVIEW_PATH),
+        original_url=None,
+        back_href="/upload",
+        nav_active="preview",
+        show_controls=False,
+    )
 
 
 @app.route("/preview.png", methods=["GET"])
