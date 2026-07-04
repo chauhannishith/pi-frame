@@ -2,6 +2,7 @@
 
 from PIL import Image
 
+from processing.focal_crop import resize_cover_focal
 from processing.types import ResizeMode
 
 
@@ -25,7 +26,7 @@ def resize_contain(image: Image.Image, width: int, height: int) -> Image.Image:
 
 
 def resize_cover(image: Image.Image, width: int, height: int) -> Image.Image:
-    """Scale to fill the target box, then center-crop."""
+    """Scale to fill the target box, then center-crop (legacy, no face detection)."""
     src_w, src_h = image.size
     scale = max(width / src_w, height / src_h)
     new_w = max(1, int(src_w * scale))
@@ -46,7 +47,7 @@ def resize_for_display(
     """
     Resize source image to target display dimensions.
 
-    cover   — scale to fill, center-crop (best for photos)
+    cover   — cover-scale + face-aware vertical crop (default for photos)
     contain — scale to fit inside, letterbox with white
     stretch — ignore aspect ratio
     """
@@ -57,4 +58,4 @@ def resize_for_display(
         return resize_stretch(src, width, height)
     if mode == ResizeMode.CONTAIN:
         return resize_contain(src, width, height)
-    return resize_cover(src, width, height)
+    return resize_cover_focal(src, width, height)
