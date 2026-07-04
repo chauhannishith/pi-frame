@@ -1,0 +1,11 @@
+services:
+  pi-frame:
+    build: .
+    container_name: pi-frame
+    ports:
+      - "5000:5000"
+    environment:
+      TZ: Asia/Kolkata
+    volumes:
+      - ./app:/app
+    restart: unless-stopped
