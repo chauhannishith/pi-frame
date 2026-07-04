@@ -11,11 +11,11 @@ env/
 .env
 
 # Generated runtime output
-app/latest_frame.bin
+pi-server/app/latest_frame.bin
 
 # Source images (user-provided, not committed)
-app/source_images/*
-!app/source_images/.gitkeep
+pi-server/app/source_images/*
+!pi-server/app/source_images/.gitkeep
 
 # OS and editor
 .DS_Store
