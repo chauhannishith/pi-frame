@@ -1,6 +1,11 @@
 # Hardware Drivers
 
-Low-level display interface code for the **7.3-inch 6-color e-ink panel** connected directly to a Raspberry Pi 4.
+Low-level display interface for:
+
+| Component | SKU |
+|---|---|
+| Display panel | **WVSH0103** — 7.3-inch 6-Color E-Paper, 800×480 px |
+| Driver board | **061-15823** — SPI driver board *(integration pending)* |
 
 This folder is for bare-metal Pi development — SPI/GPIO wiring, pin configuration, and raw display test scripts. It runs **outside** the Docker container in `pi-server/`.
 

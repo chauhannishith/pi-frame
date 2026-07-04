@@ -12,6 +12,8 @@ env/
 
 # Generated runtime output
 pi-server/app/latest_frame.bin
+pi-server/app/preview.png
+pi-server/app/uploads/
 
 # Source images (user-provided, not committed)
 pi-server/app/source_images/*

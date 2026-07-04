@@ -2,6 +2,29 @@
 
 Self-contained workspace for a **7.3-inch 6-color e-ink photo frame** on a **Raspberry Pi 4 Model B**.
 
+## Target hardware
+
+| Component | SKU | Spec |
+|---|---|---|
+| **Display panel** | **WVSH0103** | 7.3-inch 6-Color E-Paper, 800×480 px, low power (Spectra 6) |
+| **Driver board** | **061-15823** | SPI driver board for the panel *(driver integration pending)* |
+
+The image-processing pipeline in `pi-server/` is configured for **800×480** and a **6-color** palette (black, white, green, blue, red, yellow). The hardware driver in `hardware-drivers/` still needs to be written against the **061-15823** board spec.
+
+## Implementation status
+
+| Layer | Status |
+|---|---|
+| Image resize / crop to 800×480 | Done |
+| 6-color palette quantization (CIE L\*a\*b\*) | Done |
+| Error diffusion dithering (Floyd-Steinberg, Atkinson) | Done |
+| Raw binary frame export | Done |
+| Daily processing + HTTP delivery | Done |
+| Unit tests (processing pipeline) | Done |
+| Palette calibrated to WVSH0103 ink colors | Not yet — uses ideal RGB swatches |
+| Binary byte layout matched to 061-15823 driver | Not yet — needs driver datasheet |
+| SPI display driver (`hardware-drivers/`) | Pending |
+
 The repository splits into two concerns:
 
 | Directory | Purpose |
@@ -19,7 +42,7 @@ The repository splits into two concerns:
 │  │  pi-server/ (Docker)│   │  hardware-drivers/       │ │
 │  │                     │   │  (runs on Pi host)       │ │
 │  │  Daily image        │   │                          │ │
-│  │  processing ────────┼───┼─► SPI/GPIO ──► E-ink     │ │
+│  │  processing ────────┼───┼─► SPI/GPIO ──► WVSH0103   │ │
 │  │  Flask :5000        │   │  display panel           │ │
 │  └─────────────────────┘   └──────────────────────────┘ │
 └─────────────────────────────────────────────────────────┘
@@ -41,7 +64,8 @@ pi-frame/
 │   ├── docker-compose.yml
 │   ├── requirements.txt
 │   └── app/
-│       └── app.py             Flask server + daily processing thread
+│       ├── app.py             Flask server + daily processing thread
+│       └── processing/        Resize, dither, binary export pipeline
 └── hardware-drivers/
     ├── README.md              Pinout and SPI setup guide
     └── driver_test.py         SPI/GPIO test skeleton
@@ -100,22 +124,36 @@ Environment variables can be set in `pi-server/docker-compose.yml`:
 | `FRAME_WIDTH` | `800` | Target frame width (pixels) |
 | `FRAME_HEIGHT` | `480` | Target frame height (pixels) |
 | `PROCESSING_INTERVAL_SECONDS` | `86400` | Seconds between processing cycles |
+| `DITHER_METHOD` | `floyd_steinberg` | `floyd_steinberg`, `atkinson`, or `nearest` |
+| `BINARY_PACK_MODE` | `byte` | `byte` (1 index/byte) or `packed` (3-bit) |
 | `FLASK_HOST` | `0.0.0.0` | Flask bind address |
 | `FLASK_PORT` | `5000` | Flask listen port |
 
-## Adding image processing logic
+## Image processing pipeline
 
-Edit `process_images()` in `pi-server/app/app.py`. The intended workflow:
+Implemented in `pi-server/app/processing/`:
 
-1. Load source images from `SOURCE_IMAGES_DIR`
-2. Resize or crop to `FRAME_WIDTH` × `FRAME_HEIGHT`
-3. Apply 6-color dithering (Atkinson, Floyd-Steinberg, etc.)
-4. Pack pixels into a binary frame buffer
-5. Write the result to `LATEST_FRAME_PATH`
+1. Load source image from `SOURCE_IMAGES_DIR`
+2. Resize / crop to **800×480** (`resize.py` — cover, contain, or stretch)
+3. Quantize to 6 palette colors with CIE L\*a\*b\* matching (`color.py`, `dither.py`)
+4. Pack indices into a raw binary buffer (`binary.py`)
+5. Write to `LATEST_FRAME_PATH` for the Flask endpoint to serve
 
-Place input photos in `pi-server/app/source_images/` on the host.
+Drop a photo into `pi-server/app/source_images/` on the Pi, restart the container, and the background thread will process it on startup (then every 24 h).
+
+To process a single image manually:
+
+```python
+from processing import process_image_to_binary
+
+process_image_to_binary("source_images/photo.jpg", "latest_frame.bin")
+```
+
+Palette swatches live in `pi-server/app/palette.py`. Tune `EINK_PALETTE_RGB` once you can photograph the actual WVSH0103 ink colors.
 
 ## Hardware drivers
+
+Target panel: **WVSH0103** (800×480, 6-color) via driver board **061-15823**.
 
 See [`hardware-drivers/README.md`](hardware-drivers/README.md) for:
 
