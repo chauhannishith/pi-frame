@@ -17,6 +17,7 @@ from processing.dither import (
     palette_index_for_rgb,
     quantize_to_palette,
 )
+from processing.frame_orientation import normalize_orientation, orient_indices, processing_dimensions
 from processing.resize import resize_for_display
 from processing.types import DitherMethod, PackMode, ResizeMode
 
@@ -31,6 +32,7 @@ def process_image_to_binary(
     *,
     preview_path: str | Path | None = None,
     resize_mode: ResizeMode | str = ResizeMode.COVER,
+    frame_orientation: str = "landscape",
     dither_method: DitherMethod | str = DITHER_METHOD,
     pack_mode: PackMode | str = BINARY_PACK_MODE,
     palette_rgb=None,
@@ -48,19 +50,23 @@ def process_image_to_binary(
     if not source_path.is_file():
         raise FileNotFoundError(f"Source image not found: {source_path}")
 
+    orientation = normalize_orientation(frame_orientation)
+    proc_w, proc_h = processing_dimensions(orientation, width, height)
+
     logger.info(
-        "Processing %s -> %s (%dx%d, dither=%s, pack=%s)",
+        "Processing %s -> %s (%dx%d, orient=%s, dither=%s, pack=%s)",
         source_path,
         output_path or "(preview only)",
-        width,
-        height,
+        proc_w,
+        proc_h,
+        orientation,
         dither_method,
         pack_mode,
     )
 
     with Image.open(source_path) as img:
         img = ImageOps.exif_transpose(img)
-        layout = resize_for_display(img, width, height, mode=resize_mode)
+        layout = resize_for_display(img, proc_w, proc_h, mode=resize_mode)
 
     palette = palette_rgb if palette_rgb is not None else EINK_PALETTE_RGB
     content_indices = quantize_to_palette(
@@ -70,15 +76,15 @@ def process_image_to_binary(
     )
     pad_index = palette_index_for_rgb(layout.pad_color, palette)
     paste_x, paste_y = layout.paste_xy
-    frame_w, frame_h = layout.frame_size
     indices = composite_indices_on_frame(
         content_indices,
-        frame_w,
-        frame_h,
+        proc_w,
+        proc_h,
         paste_x,
         paste_y,
         pad_index,
     )
+    indices = orient_indices(indices, orientation)
 
     frame_bytes = pack_frame_buffer(indices, mode=pack_mode)
     output_path = Path(output) if output is not None else None
@@ -104,6 +110,7 @@ def run_library_processing(
     *,
     preview_path: str | Path | None = PREVIEW_PATH,
     dither_method: DitherMethod | str = DITHER_METHOD,
+    frame_orientation: str = "landscape",
 ) -> Path | None:
     """
     Advance the library rotation, process the next image, and write outputs.
@@ -122,5 +129,6 @@ def run_library_processing(
         height=height,
         preview_path=preview_path,
         dither_method=dither_method,
+        frame_orientation=frame_orientation,
     )
     return source

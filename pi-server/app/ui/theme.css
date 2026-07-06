@@ -435,11 +435,19 @@ a { color: var(--primary); }
 
 .narrow-page { max-width: 32rem; margin: 0 auto; padding: 1.5rem; }
 
+.orientation-toggle { margin-top: 0.5rem; }
+
+.settings-orientation-mobile {
+  display: block;
+  margin-bottom: 1.5rem;
+}
+
 @media (min-width: 768px) {
   .top-nav { display: flex; }
   .sidebar { display: block; }
   .mobile-nav { display: none; }
   .main-content { padding: 1.5rem 2rem 2rem; }
+  .settings-orientation-mobile { display: none; }
 }
 
 @media (max-width: 767px) {

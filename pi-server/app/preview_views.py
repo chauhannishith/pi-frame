@@ -6,7 +6,9 @@ import html
 import time
 
 from config import FRAME_HEIGHT, FRAME_WIDTH
+from processing.frame_orientation import normalize_orientation, orientation_label
 from ui.layout import page_shell
+from ui.orientation_controls import orientation_toggle_html
 
 DITHER_OPTIONS = ("floyd_steinberg", "atkinson")
 
@@ -43,11 +45,16 @@ def _dither_toggle_html(selected: str, form_id: str = "preview-form") -> str:
     return f'<div class="dither-toggle">{"".join(options)}</div>'
 
 
+def _orientation_controls_html(current: str, form_id: str = "preview-form") -> str:
+    return orientation_toggle_html(current, form_id=form_id)
+
+
 def render_image_view_page(
     *,
     source_name: str,
     form_action: str,
     dither_method: str = "floyd_steinberg",
+    frame_orientation: str = "landscape",
     show_dithered: bool = False,
     original_url: str | None = None,
     back_href: str = "/gallery",
@@ -59,17 +66,19 @@ def render_image_view_page(
 ) -> str:
     if dither_method not in DITHER_OPTIONS:
         dither_method = "floyd_steinberg"
+    frame_orientation = normalize_orientation(frame_orientation)
 
     safe_name = html.escape(source_name)
     heading = html.escape(page_heading or source_name)
     cache_bust = int(time.time())
+    orient_hint = orientation_label(frame_orientation)
 
     dithered_block = ""
     if show_dithered:
         dithered_block = f"""
     <div class="view-panel dithered">
       <h3 style="font-size:0.95rem;margin-bottom:0.35rem">Dithered output</h3>
-      <p class="sub" style="margin-bottom:0.75rem">{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color · {html.escape(dither_method_label(dither_method))}</p>
+      <p class="sub" style="margin-bottom:0.75rem">{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color · {html.escape(dither_method_label(dither_method))} · {html.escape(orient_hint)}</p>
       {dithered_preview_img_html(cache_bust)}
     </div>"""
 
@@ -89,7 +98,9 @@ def render_image_view_page(
   <h3>Preview &amp; push</h3>
   <p class="sub">Generate preview to see the dithered result here. Push to frame updates <code>latest_frame.bin</code> — then press the driver wake button.</p>
   {_dither_toggle_html(dither_method)}
+  {_orientation_controls_html(frame_orientation)}
   <form id="preview-form" method="post" action="{html.escape(form_action)}">
+    <input type="hidden" name="frame_orientation" value="{html.escape(frame_orientation)}">
     <div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-top:0.25rem">
       <button type="submit" name="action" value="preview" class="btn btn-secondary">Generate preview</button>
       <button type="submit" name="action" value="push" class="btn btn-primary">Push to frame</button>

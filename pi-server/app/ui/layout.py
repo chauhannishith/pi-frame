@@ -5,6 +5,8 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
+from ui.orientation_controls import orientation_toggle_html
+
 _NAV_ITEMS = (
     ("gallery", "Gallery", "/gallery"),
     ("google", "Google Photos", "/google"),
@@ -118,7 +120,13 @@ def gallery_sidebar(
     frame_status: str,
     frame_filename: str,
     frame_time: str,
+    frame_orientation: str = "landscape",
 ) -> str:
+    orientation_html = orientation_toggle_html(
+        frame_orientation,
+        action="/gallery/orientation",
+        full_width=True,
+    )
     return f"""
 <div class="sidebar-section">
   <p class="sidebar-label">Library</p>
@@ -130,6 +138,7 @@ def gallery_sidebar(
   <p class="sidebar-label">Frame output</p>
   <div class="stat-card"><strong>{html.escape(frame_status)}</strong></div>
   <div class="stat-card">{html.escape(frame_filename)} · {html.escape(frame_time)}</div>
+  {orientation_html}
 </div>
 <div class="sidebar-section">
   <p class="sidebar-label">Display</p>

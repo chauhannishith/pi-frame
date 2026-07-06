@@ -7,8 +7,9 @@ import html
 from flask import Blueprint, abort, redirect, request, send_file, url_for
 
 from config import SOURCE_IMAGES_DIR
-from frame_service import change_frame, generate_preview, process_specific_image
-from settings_store import format_frame_output_status, get_default_dither_method
+from frame_service import change_frame, generate_preview, process_specific_image, toggle_frame_orientation
+from processing.frame_orientation import orientation_label
+from settings_store import format_frame_output_status, get_default_dither_method, get_frame_orientation, set_frame_orientation
 from user_errors import format_user_error
 from library import (
     add_to_library,
@@ -203,6 +204,7 @@ def _render_gallery(
         frame_status=frame_status,
         frame_filename=frame_filename,
         frame_time=frame_time,
+        frame_orientation=get_frame_orientation(),
     )
 
     return page_shell(
@@ -296,6 +298,22 @@ def gallery_change():
     return redirect(url_for("gallery.gallery_index", msg=f"Frame changed to {name}. Press the driver wake button to update the display."))
 
 
+def _orientation_flash_message(new_orientation: str, preview_source: str | None) -> str:
+    label = orientation_label(new_orientation)
+    if preview_source:
+        return f"Switched to {label} and regenerated preview for {preview_source}."
+    return f"Frame orientation set to {label}."
+
+
+@gallery_bp.route("/gallery/orientation", methods=["POST"])
+def gallery_orientation():
+    try:
+        new_orientation, preview_source = toggle_frame_orientation()
+    except Exception as exc:
+        return redirect(url_for("gallery.gallery_index", err=f"Orientation change failed: {format_user_error(exc)}"))
+    return redirect(url_for("gallery.gallery_index", msg=_orientation_flash_message(new_orientation, preview_source)))
+
+
 @gallery_bp.route("/gallery/view/<filename>", methods=["GET", "POST"])
 def gallery_view(filename: str):
     path = resolve_library_file(SOURCE_IMAGES_DIR, filename)
@@ -305,18 +323,36 @@ def gallery_view(filename: str):
     dither_method = request.values.get("dither_method", get_default_dither_method())
     if dither_method not in ("floyd_steinberg", "atkinson"):
         dither_method = get_default_dither_method()
+    frame_orientation = get_frame_orientation()
 
     if request.method == "POST":
         action = request.form.get("action", "preview")
+        if action == "orientation":
+            frame_orientation = "portrait" if frame_orientation == "landscape" else "landscape"
+            set_frame_orientation(frame_orientation)
+            action = "preview"
         try:
             if action == "push":
-                process_specific_image(path, dither_method=dither_method)
+                process_specific_image(
+                    path,
+                    dither_method=dither_method,
+                    frame_orientation=frame_orientation,
+                )
             else:
-                generate_preview(path, dither_method=dither_method)
+                generate_preview(
+                    path,
+                    dither_method=dither_method,
+                    frame_orientation=frame_orientation,
+                )
         except Exception as exc:
             label = "Push" if action == "push" else "Preview"
             return redirect(url_for("gallery.gallery_index", err=f"{label} failed: {format_user_error(exc)}"))
-        params = {"filename": filename, "generated": 1, "method": dither_method}
+        params = {
+            "filename": filename,
+            "generated": 1,
+            "method": dither_method,
+            "orientation": frame_orientation,
+        }
         if action == "push":
             params["pushed"] = 1
         return redirect(url_for("gallery.gallery_view", **params))
@@ -326,6 +362,7 @@ def gallery_view(filename: str):
         dither_method = request.args.get("method", dither_method)
         if dither_method not in ("floyd_steinberg", "atkinson"):
             dither_method = get_default_dither_method()
+        frame_orientation = get_frame_orientation()
 
     flash = ""
     flash_kind = "ok"
@@ -337,6 +374,7 @@ def gallery_view(filename: str):
         original_url=url_for("gallery.gallery_file", filename=filename),
         form_action=url_for("gallery.gallery_view", filename=filename),
         dither_method=dither_method,
+        frame_orientation=frame_orientation,
         show_dithered=show_dithered,
         flash=flash,
         flash_kind=flash_kind,

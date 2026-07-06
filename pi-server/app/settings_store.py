@@ -12,6 +12,7 @@ SETTINGS_PATH = Path(DATA_DIR) / "settings.json"
 
 _SETTING_KEYS = (
     "default_dither_method",
+    "frame_orientation",
     "last_preview_source",
     "last_preview_dither",
     "last_preview_at",
@@ -21,6 +22,7 @@ _SETTING_KEYS = (
 def _default_settings() -> dict:
     return {
         "default_dither_method": DITHER_METHOD,
+        "frame_orientation": "landscape",
         "last_preview_source": None,
         "last_preview_dither": None,
         "last_preview_at": None,
@@ -55,12 +57,44 @@ def set_default_dither_method(method: str) -> None:
     save_settings(settings)
 
 
-def record_preview(source_name: str, dither_method: str) -> None:
+def set_default_dither_method(method: str) -> None:
+    method = method.lower()
+    if method not in ("floyd_steinberg", "atkinson"):
+        raise ValueError("Invalid dither method")
+    settings = load_settings()
+    settings["default_dither_method"] = method
+    save_settings(settings)
+
+
+def get_frame_orientation() -> str:
+    from processing.frame_orientation import normalize_orientation
+
+    return normalize_orientation(load_settings().get("frame_orientation"))
+
+
+def set_frame_orientation(orientation: str) -> None:
+    from processing.frame_orientation import normalize_orientation
+
+    orientation = normalize_orientation(orientation)
+    settings = load_settings()
+    settings["frame_orientation"] = orientation
+    save_settings(settings)
+
+
+def record_preview(
+    source_name: str,
+    dither_method: str,
+    frame_orientation: str | None = None,
+) -> None:
     """Record which image and dither method produced the current preview.png."""
+    from processing.frame_orientation import normalize_orientation
+
     settings = load_settings()
     settings["last_preview_source"] = source_name
     settings["last_preview_dither"] = dither_method
     settings["last_preview_at"] = datetime.now(timezone.utc).isoformat()
+    if frame_orientation is not None:
+        settings["frame_orientation"] = normalize_orientation(frame_orientation)
     save_settings(settings)
 
 

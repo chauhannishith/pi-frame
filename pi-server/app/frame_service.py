@@ -13,13 +13,23 @@ from config import (
     PREVIEW_PATH,
     SOURCE_IMAGES_DIR,
 )
-from library import record_processed_source
+from library import record_processed_source, resolve_library_file
 from processing.pipeline import process_image_to_binary, run_library_processing
-from settings_store import get_default_dither_method, record_preview
+from settings_store import (
+    get_default_dither_method,
+    get_frame_orientation,
+    load_settings,
+    record_preview,
+    set_frame_orientation,
+)
 
 logger = logging.getLogger(__name__)
 
 processing_lock = threading.Lock()
+
+
+def _orientation() -> str:
+    return get_frame_orientation()
 
 
 def change_frame(dither_method: str | None = None) -> str | None:
@@ -29,6 +39,7 @@ def change_frame(dither_method: str | None = None) -> str | None:
     Returns the processed source filename, or None if library is empty.
     """
     method = dither_method or get_default_dither_method()
+    orientation = _orientation()
     with processing_lock:
         result = run_library_processing(
             SOURCE_IMAGES_DIR,
@@ -37,20 +48,41 @@ def change_frame(dither_method: str | None = None) -> str | None:
             height=FRAME_HEIGHT,
             preview_path=PREVIEW_PATH,
             dither_method=method,
+            frame_orientation=orientation,
         )
     if result is None:
         return None
-    record_preview(result.name, method)
+    record_preview(result.name, method, orientation)
     logger.info("Frame changed to %s", result.name)
     return result.name
+
+
+def toggle_frame_orientation() -> tuple[str, str | None]:
+    """Toggle orientation and regenerate preview when a preview source exists."""
+    current = get_frame_orientation()
+    new = "portrait" if current == "landscape" else "landscape"
+    set_frame_orientation(new)
+
+    preview_source = load_settings().get("last_preview_source")
+    if not preview_source:
+        return new, None
+
+    path = resolve_library_file(SOURCE_IMAGES_DIR, preview_source)
+    if path is None:
+        return new, None
+
+    generate_preview(path, get_default_dither_method(), new)
+    return new, preview_source
 
 
 def generate_preview(
     source: str | Path,
     dither_method: str | None = None,
+    frame_orientation: str | None = None,
 ) -> str:
     """Dither an image and write preview PNG only — does not update the frame binary."""
     method = dither_method or get_default_dither_method()
+    orientation = frame_orientation or _orientation()
     source_path = Path(source)
     with processing_lock:
         process_image_to_binary(
@@ -60,18 +92,21 @@ def generate_preview(
             height=FRAME_HEIGHT,
             preview_path=PREVIEW_PATH,
             dither_method=method,
+            frame_orientation=orientation,
         )
-    record_preview(source_path.name, method)
-    logger.info("Generated preview for: %s", source_path.name)
+    record_preview(source_path.name, method, orientation)
+    logger.info("Generated preview for: %s (%s)", source_path.name, orientation)
     return source_path.name
 
 
 def process_specific_image(
     source: str | Path,
     dither_method: str | None = None,
+    frame_orientation: str | None = None,
 ) -> str:
     """Process a specific library image without advancing rotation."""
     method = dither_method or get_default_dither_method()
+    orientation = frame_orientation or _orientation()
     source_path = Path(source)
     with processing_lock:
         process_image_to_binary(
@@ -81,8 +116,9 @@ def process_specific_image(
             height=FRAME_HEIGHT,
             preview_path=PREVIEW_PATH,
             dither_method=method,
+            frame_orientation=orientation,
         )
         record_processed_source(source_path.name)
-    record_preview(source_path.name, method)
-    logger.info("Processed specific image: %s", source_path.name)
+    record_preview(source_path.name, method, orientation)
+    logger.info("Processed specific image: %s (%s)", source_path.name, orientation)
     return source_path.name
