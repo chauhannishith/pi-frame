@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+
 from flask import Blueprint, redirect, request, url_for
 
 from config import SOURCE_IMAGES_DIR
@@ -20,49 +22,11 @@ from google_photos import (
     picker_uri_with_autoclose,
     start_photo_pick,
 )
+from settings_store import get_default_dither_method
 from user_errors import format_user_error
+from ui.layout import page_shell
 
 google_bp = Blueprint("google", __name__)
-
-GOOGLE_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Google Photos — pi-frame</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; color: #222; }}
-    nav {{ margin-bottom: 1.5rem; font-size: 0.9rem; }}
-    nav a {{ margin-right: 1rem; }}
-    .status {{ padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; font-size: 0.9rem; }}
-    .connected {{ background: #e6f4ea; border: 1px solid #a8dab5; }}
-    .disconnected {{ background: #fef7e0; border: 1px solid #fdd663; }}
-    .unconfigured {{ background: #fce8e6; border: 1px solid #f5aca3; }}
-    button, .btn {{
-      background: #222; color: #fff; border: none; padding: 0.6rem 1.2rem;
-      border-radius: 6px; cursor: pointer; font-size: 0.95rem; text-decoration: none; display: inline-block;
-    }}
-    button:hover, .btn:hover {{ background: #444; }}
-    .btn-google {{ background: #1a73e8; }}
-    form {{ margin-top: 1rem; }}
-    code {{ background: #f4f4f4; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85rem; }}
-  </style>
-</head>
-<body>
-  <h1>Google Photos</h1>
-  <nav>
-    <a href="/gallery">Gallery</a>
-    <a href="/google">Google Photos</a>
-    <a href="/preview">Preview</a>
-  </nav>
-
-  {status_block}
-
-  {actions}
-
-  {footer}
-</body>
-</html>"""
 
 
 def _missing_config_vars() -> list[str]:
@@ -76,39 +40,7 @@ def _missing_config_vars() -> list[str]:
     return missing
 
 
-PICK_WAIT_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="{refresh_seconds};url={wait_url}">
-  <title>Pick a photo — pi-frame</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; color: #222; }}
-    .status {{ padding: 1rem; border-radius: 8px; background: #fef7e0; border: 1px solid #fdd663; font-size: 0.95rem; margin-bottom: 1.25rem; }}
-    a.btn {{ background: #1a73e8; color: #fff; padding: 0.75rem 1.4rem; border-radius: 6px; text-decoration: none; display: inline-block; font-size: 1rem; }}
-    ol {{ color: #444; font-size: 0.95rem; line-height: 1.6; padding-left: 1.2rem; }}
-  </style>
-</head>
-<body>
-  <h1>Pick a photo</h1>
-  <div class="status">{message}</div>
-  <ol>
-    <li>Click <strong>Open Google Photos</strong> below</li>
-    <li>Select one or more photos, then confirm</li>
-    <li>Return to this tab — import runs automatically</li>
-  </ol>
-  <p><a class="btn" href="{picker_uri}" target="_blank" rel="noopener">Open Google Photos</a></p>
-  <p style="color:#666;font-size:0.85rem;margin-top:1.5rem">
-    Checking every {refresh_seconds}s for your selection…
-  </p>
-  <p><a href="/google">Cancel</a></p>
-</body>
-</html>"""
-
-
 def _config_checklist_html() -> str:
-    """Show redirect URI hint when configured but not connected."""
     from config import FLASK_SECRET_KEY, GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI
 
     secret_ok = bool(FLASK_SECRET_KEY) and FLASK_SECRET_KEY != "dev-change-me-in-production"
@@ -116,19 +48,11 @@ def _config_checklist_html() -> str:
     client_suffix = GOOGLE_CLIENT_ID[-20:] if len(GOOGLE_CLIENT_ID) >= 20 else GOOGLE_CLIENT_ID
 
     return f"""
-  <p style="color:#666;font-size:0.85rem;margin-top:2rem">
-    Open this app at <code>{GOOGLE_REDIRECT_URI.replace('/google/callback', '/google')}</code>
-    (redirect URI must match Google Cloud exactly). FLASK_SECRET_KEY: {secret_note}.
-    Client ID ends with <code>...{client_suffix}</code>.
-  </p>"""
-
-
-def _render_google_page(status_html: str, actions_html: str, footer_html: str = "") -> str:
-    return (
-        GOOGLE_HTML.replace("{status_block}", status_html)
-        .replace("{actions}", actions_html)
-        .replace("{footer}", footer_html)
-    )
+<p style="color:var(--on-surface-muted);font-size:0.85rem;margin-top:1.5rem;line-height:1.6">
+  Open this app at <code>{html.escape(GOOGLE_REDIRECT_URI.replace('/google/callback', '/google'))}</code>
+  (redirect URI must match Google Cloud exactly). FLASK_SECRET_KEY: {secret_note}.
+  Client ID ends with <code>...{html.escape(client_suffix)}</code>.
+</p>"""
 
 
 def _setup_footer_html() -> str:
@@ -136,59 +60,123 @@ def _setup_footer_html() -> str:
     if not missing:
         return ""
 
-    var_list = ", ".join(f"<code>{name}</code>" for name in missing)
+    var_list = ", ".join(f"<code>{html.escape(name)}</code>" for name in missing)
     return f"""
-  <p style="color:#666;font-size:0.85rem;margin-top:2rem">
-    Missing: {var_list}. Enable the Photos Picker API in Google Cloud,
-    create an OAuth Web client, and set these in <code>pi-server/.env</code>.
-  </p>"""
+<p style="color:var(--on-surface-muted);font-size:0.85rem;margin-top:1.5rem;line-height:1.6">
+  Missing: {var_list}. Enable the Photos Picker API in Google Cloud,
+  create an OAuth Web client, and set these in <code>pi-server/.env</code>.
+</p>"""
 
 
-def _footer_html() -> str:
-    if not is_google_photos_configured():
-        return _setup_footer_html()
-    if is_connected():
-        return ""
-    return _config_checklist_html()
+def _render_google_page(
+    status_html: str,
+    actions_html: str,
+    footer_html: str = "",
+    flash: str = "",
+    flash_kind: str = "ok",
+) -> str:
+    body = f"""
+<h1 style="font-size:1.5rem;margin-bottom:0.35rem">Google Photos</h1>
+<p style="color:var(--on-surface-muted);margin-bottom:1.25rem;line-height:1.5">
+  Import photos from your Google library using the official picker. Selections are copied into the local rotation library.
+</p>
+{status_html}
+{actions_html}
+{footer_html}"""
+
+    return page_shell(
+        title="Google Photos",
+        nav_active="google",
+        body_html=body,
+        flash=flash,
+        flash_kind=flash_kind,
+        use_sidebar=False,
+        show_change=True,
+    )
+
+
+def _render_pick_wait(session_id: str, library_only: bool, message: str) -> str:
+    creds = load_credentials()
+    if creds is None:
+        raise RuntimeError("Google Photos not connected — visit /google/connect first")
+
+    session = get_picker_session(creds, session_id)
+    picker_uri = html.escape(picker_uri_with_autoclose(session.get("pickerUri", "")))
+    refresh_seconds = _poll_interval_seconds(session)
+    wait_url = html.escape(url_for(
+        "google.google_pick_wait",
+        session_id=session_id,
+        library_only=1 if library_only else 0,
+    ))
+
+    body = f"""
+<h1 style="font-size:1.5rem;margin-bottom:0.75rem">Pick photos</h1>
+<div class="status-pill status-disconnected">{html.escape(message)}</div>
+<ol style="color:var(--on-surface-muted);font-size:0.92rem;line-height:1.7;padding-left:1.2rem;margin-bottom:1.25rem">
+  <li>Click <strong>Open Google Photos</strong> below</li>
+  <li>Select one or more photos, then confirm</li>
+  <li>Return to this tab — import runs automatically</li>
+</ol>
+<p><a class="btn btn-primary" href="{picker_uri}" target="_blank" rel="noopener">Open Google Photos</a></p>
+<p style="color:var(--on-surface-muted);font-size:0.85rem;margin-top:1.5rem">
+  Checking every {refresh_seconds}s for your selection…
+</p>
+<p style="margin-top:1rem"><a href="/google">Cancel</a></p>"""
+
+    return page_shell(
+        title="Pick photos",
+        nav_active="google",
+        body_html=body,
+        use_sidebar=False,
+        show_change=False,
+        extra_head=f'<meta http-equiv="refresh" content="{refresh_seconds};url={wait_url}">',
+    )
+
+
+def _poll_interval_seconds(session: dict) -> int:
+    raw = session.get("pollingConfig", {}).get("pollInterval", "5s")
+    try:
+        return max(3, int(str(raw).rstrip("s")))
+    except ValueError:
+        return 5
 
 
 @google_bp.route("/google", methods=["GET"])
 def google_index():
+    msg = request.args.get("msg", "")
+    err = request.args.get("err", "")
+
     if not is_google_photos_configured():
         missing = ", ".join(_missing_config_vars())
         status = (
-            f'<div class="status unconfigured">Google Photos is not configured'
-            f"{f' — missing {missing}' if missing else ''}.</div>"
+            f'<div class="status-pill status-unconfigured">Google Photos is not configured'
+            f"{f' — missing {html.escape(missing)}' if missing else ''}.</div>"
         )
-        return _render_google_page(status, "", _setup_footer_html())
+        return _render_google_page(status, "", _setup_footer_html(), flash=err or msg, flash_kind="err" if err else "ok")
 
     if is_connected():
-        status = '<div class="status connected">Connected to Google Photos.</div>'
+        status = '<div class="status-pill status-connected">Connected to Google Photos.</div>'
         actions = """
-        <form method="post" action="/google/pick">
-          <button type="submit" class="btn-google">Pick photo &amp; CHANGE frame</button>
-        </form>
-        <form method="post" action="/google/pick?library_only=1" style="margin-top:0.5rem">
-          <button type="submit">Pick photo to library only</button>
-        </form>
-        <p style="color:#666;font-size:0.85rem;margin-top:0.75rem">
-          Select photos in Google&apos;s picker — pi-frame imports your full selection into the library for rotation.
-        </p>
-        <form method="post" action="/google/disconnect" style="margin-top:1.5rem">
-          <button type="submit">Disconnect</button>
-        </form>"""
+<div class="panel form-stack">
+  <form method="post" action="/google/pick">
+    <button type="submit" class="btn btn-primary">Pick photos &amp; push first to frame</button>
+  </form>
+  <form method="post" action="/google/pick?library_only=1" style="margin-top:0.75rem">
+    <button type="submit" class="btn btn-secondary">Pick photos to library only</button>
+  </form>
+  <p style="color:var(--on-surface-muted);font-size:0.85rem;margin-top:0.75rem;line-height:1.5">
+    Select photos in Google&apos;s picker — pi-frame imports your full selection into the library for rotation.
+  </p>
+  <form method="post" action="/google/disconnect" style="margin-top:1.25rem">
+    <button type="submit" class="btn btn-ghost">Disconnect</button>
+  </form>
+</div>"""
     else:
-        status = '<div class="status disconnected">Not connected to Google Photos.</div>'
-        actions = '<a class="btn btn-google" href="/google/connect">Connect Google Photos</a>'
+        status = '<div class="status-pill status-disconnected">Not connected to Google Photos.</div>'
+        actions = '<a class="btn btn-primary" href="/google/connect">Connect Google Photos</a>'
 
-    msg = request.args.get("msg", "")
-    err = request.args.get("err", "")
-    if msg:
-        status += f'<div class="status connected">{msg}</div>'
-    if err:
-        status += f'<div class="status unconfigured">{err}</div>'
-
-    return _render_google_page(status, actions, _footer_html())
+    footer = _config_checklist_html() if not is_connected() else ""
+    return _render_google_page(status, actions, footer, flash=err or msg, flash_kind="err" if err else "ok")
 
 
 @google_bp.route("/google/connect", methods=["GET"])
@@ -228,35 +216,6 @@ def google_callback():
         )
 
 
-def _poll_interval_seconds(session: dict) -> int:
-    raw = session.get("pollingConfig", {}).get("pollInterval", "5s")
-    try:
-        return max(3, int(str(raw).rstrip("s")))
-    except ValueError:
-        return 5
-
-
-def _render_pick_wait(session_id: str, library_only: bool, message: str) -> str:
-    creds = load_credentials()
-    if creds is None:
-        raise RuntimeError("Google Photos not connected — visit /google/connect first")
-
-    session = get_picker_session(creds, session_id)
-    picker_uri = picker_uri_with_autoclose(session.get("pickerUri", ""))
-    refresh_seconds = _poll_interval_seconds(session)
-    wait_url = url_for(
-        "google.google_pick_wait",
-        session_id=session_id,
-        library_only=1 if library_only else 0,
-    )
-    return PICK_WAIT_HTML.format(
-        message=message,
-        picker_uri=picker_uri,
-        refresh_seconds=refresh_seconds,
-        wait_url=wait_url,
-    )
-
-
 @google_bp.route("/google/pick", methods=["POST"])
 def google_pick():
     library_only = request.args.get("library_only") == "1"
@@ -288,7 +247,7 @@ def google_pick_wait(session_id: str):
                     msg=f"Imported {count} {label} from Google Photos",
                 )
             )
-        name = process_specific_image(imported[0])
+        name = process_specific_image(imported[0], dither_method=get_default_dither_method())
         return redirect(url_for("gallery.gallery_view", filename=name, generated=1))
     except RuntimeError as exc:
         if str(exc) == "PICK_NOT_READY":
