@@ -7,7 +7,6 @@ import threading
 from pathlib import Path
 
 from config import (
-    DITHER_METHOD,
     FRAME_HEIGHT,
     FRAME_WIDTH,
     LATEST_FRAME_PATH,
@@ -16,6 +15,7 @@ from config import (
 )
 from library import record_processed_source
 from processing.pipeline import process_image_to_binary, run_library_processing
+from settings_store import get_default_dither_method
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ def change_frame(dither_method: str | None = None) -> str | None:
 
     Returns the processed source filename, or None if library is empty.
     """
-    method = dither_method or DITHER_METHOD
+    method = dither_method or get_default_dither_method()
     with processing_lock:
         result = run_library_processing(
             SOURCE_IMAGES_DIR,
@@ -49,7 +49,7 @@ def process_specific_image(
     dither_method: str | None = None,
 ) -> str:
     """Process a specific library image without advancing rotation."""
-    method = dither_method or DITHER_METHOD
+    method = dither_method or get_default_dither_method()
     source_path = Path(source)
     with processing_lock:
         process_image_to_binary(
