@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image
 
 from processing.color import PERCEPTUAL_CHANNEL_WEIGHTS
+from processing.types import DisplayLayout
 
 logger = logging.getLogger(__name__)
 
@@ -140,11 +141,11 @@ def _layout_landscape(
     target_w: int,
     target_h: int,
     original_rgb: np.ndarray,
-) -> Image.Image:
+) -> DisplayLayout:
     """
-    Landscape (width > height): scale to target_h, then crop or pad to target_w.
+    Landscape (width > height): scale to target_h, then crop or letterbox to target_w.
 
-    Face detection shifts the horizontal viewport; vertical dimension is already exact.
+    Returns content at preserved aspect ratio; bars are added after dithering.
     """
     src_w, src_h = image.size
     new_w, new_h, _ = scale_to_height(src_w, src_h, target_h)
@@ -159,32 +160,37 @@ def _layout_landscape(
     else:
         logger.info("Landscape layout: no faces — center crop")
 
+    frame_size = (target_w, target_h)
+
     if new_w > target_w:
         left = compute_horizontal_crop_left(new_w, target_w, focal_x=focal_x)
-        return resized.crop((left, 0, left + target_w, target_h))
+        content = resized.crop((left, 0, left + target_w, target_h))
+        return DisplayLayout(content=content, frame_size=frame_size)
 
     if new_w == target_w:
-        return resized
+        return DisplayLayout(content=resized, frame_size=frame_size)
 
     pad_color = adaptive_pad_color(original_rgb)
-    canvas = Image.new("RGB", (target_w, target_h), pad_color)
     paste_x = compute_paste_x(target_w, new_w, focal_x=focal_x)
-    canvas.paste(resized, (paste_x, 0))
-    logger.info("Landscape layout: padded %d px with %s", target_w - new_w, pad_color)
-    return canvas
+    logger.info("Landscape layout: will pad %d px with %s after dither", target_w - new_w, pad_color)
+    return DisplayLayout(
+        content=resized,
+        frame_size=frame_size,
+        paste_xy=(paste_x, 0),
+        pad_color=pad_color,
+    )
 
 
-def _layout_portrait_pad(
+def _layout_portrait_fit(
     image: Image.Image,
     target_w: int,
     target_h: int,
     original_rgb: np.ndarray,
-) -> Image.Image:
+) -> DisplayLayout:
     """
-    Portrait / square / tall: height-fit with slight vertical crop, adaptive side padding.
+    Portrait / square / tall: height-fit with face-aware vertical trim.
 
-    Scales taller than the frame to allow a face-aware vertical trim, then letterboxes
-    onto an 800×480 canvas without zooming to fill the full width.
+    Preserves aspect ratio; side letterboxing is applied after dithering.
     """
     src_w, src_h = image.size
     overscaled_h = int(round(target_h * PORTRAIT_VERT_OVERSCALE))
@@ -200,7 +206,7 @@ def _layout_portrait_pad(
     focal_x = _mean_axis([cx for cx, _ in faces])
 
     top = compute_vertical_crop_top(new_h, target_h, focal_y=focal_y)
-    cropped = resized.crop((0, top, new_w, top + target_h))
+    content = resized.crop((0, top, new_w, top + target_h))
 
     if faces:
         logger.info("Portrait layout: %d face(s), vertical crop top=%d", len(faces), top)
@@ -208,20 +214,28 @@ def _layout_portrait_pad(
         logger.info("Portrait layout: no faces — top-weighted vertical crop top=%d", top)
 
     pad_color = adaptive_pad_color(original_rgb)
-    canvas = Image.new("RGB", (target_w, target_h), pad_color)
-    adjusted_focal_x = (focal_x - 0) if focal_x is not None else None
-    paste_x = compute_paste_x(target_w, new_w, focal_x=adjusted_focal_x)
-    canvas.paste(cropped, (paste_x, 0))
-    logger.info("Portrait layout: padded %d px with %s", target_w - new_w, pad_color)
-    return canvas
+    paste_x = compute_paste_x(target_w, content.size[0], focal_x=focal_x)
+    logger.info(
+        "Portrait layout: content %dx%d, will pad %d px with %s after dither",
+        content.size[0],
+        content.size[1],
+        target_w - content.size[0],
+        pad_color,
+    )
+    return DisplayLayout(
+        content=content,
+        frame_size=(target_w, target_h),
+        paste_xy=(paste_x, 0),
+        pad_color=pad_color,
+    )
 
 
-def resize_smart_focal(image: Image.Image, width: int, height: int) -> Image.Image:
+def resize_smart_focal(image: Image.Image, width: int, height: int) -> DisplayLayout:
     """
     Fit any aspect ratio to the display with orientation-specific rules.
 
-    landscape (w > h) — height-fit, face-aware horizontal crop/pad
-    portrait/square/tall (h >= w) — hybrid vertical crop + adaptive side padding
+    landscape (w > h) — height-fit, face-aware horizontal crop/letterbox
+    portrait/square/tall (h >= w) — height-fit, face-aware vertical crop, side letterbox
     """
     src = image.convert("RGB")
     src_w, src_h = src.size
@@ -229,7 +243,7 @@ def resize_smart_focal(image: Image.Image, width: int, height: int) -> Image.Ima
 
     if src_w > src_h:
         return _layout_landscape(src, width, height, original_rgb)
-    return _layout_portrait_pad(src, width, height, original_rgb)
+    return _layout_portrait_fit(src, width, height, original_rgb)
 
 
 # Backward-compatible alias for callers/tests

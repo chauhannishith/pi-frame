@@ -3,29 +3,34 @@
 from PIL import Image
 
 from processing.focal_crop import resize_smart_focal
-from processing.types import ResizeMode
+from processing.types import DisplayLayout, ResizeMode
 
 
-def resize_stretch(image: Image.Image, width: int, height: int) -> Image.Image:
+def resize_stretch(image: Image.Image, width: int, height: int) -> DisplayLayout:
     """Scale to exact dimensions, ignoring aspect ratio."""
-    return image.resize((width, height), Image.Resampling.LANCZOS)
+    content = image.resize((width, height), Image.Resampling.LANCZOS)
+    return DisplayLayout(content=content, frame_size=(width, height))
 
 
-def resize_contain(image: Image.Image, width: int, height: int) -> Image.Image:
-    """Scale to fit inside the target box, letterboxing with white."""
+def resize_contain(image: Image.Image, width: int, height: int) -> DisplayLayout:
+    """Scale to fit inside the target box; white letterbox applied after dithering."""
     src_w, src_h = image.size
     scale = min(width / src_w, height / src_h)
     new_w = max(1, int(src_w * scale))
     new_h = max(1, int(src_h * scale))
-    resized = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    content = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
-    canvas = Image.new("RGB", (width, height), (255, 255, 255))
-    offset = ((width - new_w) // 2, (height - new_h) // 2)
-    canvas.paste(resized, offset)
-    return canvas
+    offset_x = (width - new_w) // 2
+    offset_y = (height - new_h) // 2
+    return DisplayLayout(
+        content=content,
+        frame_size=(width, height),
+        paste_xy=(offset_x, offset_y),
+        pad_color=(255, 255, 255),
+    )
 
 
-def resize_cover(image: Image.Image, width: int, height: int) -> Image.Image:
+def resize_cover(image: Image.Image, width: int, height: int) -> DisplayLayout:
     """Scale to fill the target box, then center-crop (legacy, no face detection)."""
     src_w, src_h = image.size
     scale = max(width / src_w, height / src_h)
@@ -35,7 +40,8 @@ def resize_cover(image: Image.Image, width: int, height: int) -> Image.Image:
 
     left = (new_w - width) // 2
     top = (new_h - height) // 2
-    return resized.crop((left, top, left + width, top + height))
+    content = resized.crop((left, top, left + width, top + height))
+    return DisplayLayout(content=content, frame_size=(width, height))
 
 
 def resize_for_display(
@@ -43,7 +49,7 @@ def resize_for_display(
     width: int,
     height: int,
     mode: ResizeMode | str = ResizeMode.COVER,
-) -> Image.Image:
+) -> DisplayLayout:
     """
     Resize source image to target display dimensions.
 

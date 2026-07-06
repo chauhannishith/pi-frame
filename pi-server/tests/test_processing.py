@@ -41,7 +41,7 @@ class TestPaletteQuantization:
 
     def test_pure_red_maps_to_red_index(self, solid_red_image):
         resized = resize_for_display(solid_red_image, 16, 16)
-        indices = quantize_to_palette(resized, method="nearest")
+        indices = quantize_to_palette(resized.content, method="nearest")
         assert int(np.median(indices)) == 4  # red
 
     def test_pure_white_maps_to_white_index(self):
@@ -51,14 +51,14 @@ class TestPaletteQuantization:
 
     def test_floyd_steinberg_differs_from_nearest_on_gradient(self, gradient_image):
         resized = resize_for_display(gradient_image, 48, 24)
-        nearest = quantize_to_palette(resized, method="nearest")
-        dithered = quantize_to_palette(resized, method="floyd_steinberg")
+        nearest = quantize_to_palette(resized.content, method="nearest")
+        dithered = quantize_to_palette(resized.content, method="floyd_steinberg")
         assert not np.array_equal(nearest, dithered)
         assert dithered.max() < NUM_COLORS
 
     def test_atkinson_produces_valid_indices(self, gradient_image):
         resized = resize_for_display(gradient_image, 32, 16)
-        indices = quantize_to_palette(resized, method="atkinson")
+        indices = quantize_to_palette(resized.content, method="atkinson")
         assert indices.shape == (16, 32)
         assert indices.max() < NUM_COLORS
 
@@ -128,7 +128,7 @@ class TestProcessImageToBinary:
 
     def test_preview_rgb_uses_palette_colors(self, tiny_checker_image):
         resized = resize_for_display(tiny_checker_image, 4, 4)
-        indices = quantize_to_palette(resized, method="nearest")
+        indices = quantize_to_palette(resized.content, method="nearest")
         preview = indices_to_preview_rgb(indices)
         unique = {tuple(c) for c in preview.reshape(-1, 3)}
         for color in unique:
