@@ -1,5 +1,7 @@
 import pytest
 
+pytest.importorskip("requests")
+
 from google_photos import _pkce_s256_challenge, create_oauth_state, oauth_state_error
 
 
