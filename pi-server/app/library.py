@@ -99,22 +99,45 @@ def delete_from_library(
     state_path: str | Path | None = None,
 ) -> bool:
     """Delete an image from the library."""
-    path = resolve_library_file(source_dir, filename)
-    if path is None:
-        return False
-    path.unlink()
-    logger.info("Deleted from library: %s", path.name)
-    delete_thumbnail(path)
+    deleted, _failed = delete_many_from_library(source_dir, [filename], state_path=state_path)
+    return deleted == 1
+
+
+def delete_many_from_library(
+    source_dir: str | Path,
+    filenames: list[str],
+    state_path: str | Path | None = None,
+) -> tuple[int, list[str]]:
+    """Delete multiple library images. Returns (deleted_count, filenames_not_found)."""
+    deleted_names: list[str] = []
+    failed: list[str] = []
+
+    for filename in filenames:
+        path = resolve_library_file(source_dir, filename)
+        if path is None:
+            failed.append(filename)
+            continue
+        path.unlink()
+        logger.info("Deleted from library: %s", path.name)
+        delete_thumbnail(path)
+        deleted_names.append(path.name)
+
+    if not deleted_names:
+        return 0, failed
 
     images = list_library_images(source_dir)
+    remaining = {p.name for p in images}
     state = _load_state(state_path)
     if not images:
         state["current_index"] = 0
         state["last_source"] = None
-    elif state["current_index"] >= len(images):
-        state["current_index"] = 0
+    else:
+        if state.get("last_source") not in remaining:
+            state["last_source"] = None
+        if state["current_index"] >= len(images):
+            state["current_index"] = 0
     _save_state(state, state_path)
-    return True
+    return len(deleted_names), failed
 
 
 def next_image_for_processing(

@@ -12,6 +12,7 @@ from user_errors import format_user_error
 from library import (
     add_to_library,
     delete_from_library,
+    delete_many_from_library,
     get_library_status,
     resolve_library_file,
 )
@@ -117,7 +118,60 @@ GALLERY_HTML = """<!DOCTYPE html>
       gap: 1.1rem;
     }
 
+    .card.selected {
+      border-color: #c5221f;
+      box-shadow: 0 4px 14px rgba(197, 34, 31, 0.15);
+    }
+
+    .card-select {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 1.35rem;
+      height: 1.35rem;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .card-select input {
+      width: 0.95rem;
+      height: 0.95rem;
+      margin: 0;
+      cursor: pointer;
+    }
+
+    .bulk-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      padding: 0.75rem 1rem;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+    }
+    .bulk-bar label {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.85rem;
+      color: #3c4043;
+      cursor: pointer;
+      user-select: none;
+    }
+    .bulk-bar #bulk-delete-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     .card {
+      position: relative;
       border: 2px solid #e8eaed;
       border-radius: 12px;
       overflow: hidden;
@@ -229,6 +283,59 @@ GALLERY_HTML = """<!DOCTYPE html>
     .flash-ok { background: #e6f4ea; border: 1px solid #a8dab5; color: #137333; }
     .flash-err { background: #fce8e6; border: 1px solid #f5aca3; color: #c5221f; }
   </style>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      var bulkForm = document.getElementById("bulk-delete-form");
+      var selectAll = document.getElementById("select-all");
+      var deleteBtn = document.getElementById("bulk-delete-btn");
+      var countEl = document.getElementById("sel-count");
+      if (!bulkForm || !selectAll || !deleteBtn) return;
+
+      function boxes() {
+        return Array.prototype.slice.call(document.querySelectorAll(".card-select-input"));
+      }
+
+      function selectedCount() {
+        return boxes().filter(function (b) { return b.checked; }).length;
+      }
+
+      function syncUI() {
+        var count = selectedCount();
+        var total = boxes().length;
+        countEl.textContent = String(count);
+        deleteBtn.disabled = count === 0;
+        selectAll.checked = total > 0 && count === total;
+        selectAll.indeterminate = count > 0 && count < total;
+        boxes().forEach(function (box) {
+          var card = box.closest(".card");
+          if (card) card.classList.toggle("selected", box.checked);
+        });
+      }
+
+      selectAll.addEventListener("change", function () {
+        var checked = selectAll.checked;
+        boxes().forEach(function (box) { box.checked = checked; });
+        syncUI();
+      });
+
+      boxes().forEach(function (box) {
+        box.addEventListener("change", syncUI);
+      });
+
+      bulkForm.addEventListener("submit", function (event) {
+        var count = selectedCount();
+        if (count === 0) {
+          event.preventDefault();
+          return;
+        }
+        if (!confirm("Delete " + count + " selected image(s)?")) {
+          event.preventDefault();
+        }
+      });
+
+      syncUI();
+    });
+  </script>
 </head>
 <body>
   <div class="wrap">
@@ -270,6 +377,7 @@ GALLERY_HTML = """<!DOCTYPE html>
     </div>
 
     <p class="section-title">Library</p>
+    {bulk_bar}
     {grid}
   </div>
 </body>
@@ -283,6 +391,9 @@ def _render_card(img: dict, active_name: str | None) -> str:
     active_class = " active" if is_active else ""
     return f"""
     <div class="card{active_class}">
+      <label class="card-select" title="Select for deletion">
+        <input type="checkbox" class="card-select-input" name="filenames" value="{safe_name}" form="bulk-delete-form">
+      </label>
       <a class="thumb-link" href="/gallery/view/{safe_name}">
         <div class="thumb-wrap">
           <span class="badge-on-frame">On frame</span>
@@ -309,9 +420,17 @@ def _render_gallery(flash: str = "", flash_class: str = "flash-ok") -> str:
     active_name = status.get("last_source")
 
     if images:
+        bulk_bar = """
+    <form id="bulk-delete-form" method="post" action="/gallery/delete-selected">
+      <div class="bulk-bar">
+        <label><input type="checkbox" id="select-all"> Select all</label>
+        <button type="submit" class="btn-danger" id="bulk-delete-btn" disabled>Delete selected (<span id="sel-count">0</span>)</button>
+      </div>
+    </form>"""
         cards = [_render_card(img, active_name) for img in images]
         grid = f'<div class="grid">{"".join(cards)}</div>'
     else:
+        bulk_bar = ""
         grid = '<div class="empty">No images yet — upload some photos or import from Google Photos.</div>'
 
     flash_html = f'<div class="flash {flash_class}">{html.escape(flash)}</div>' if flash else ""
@@ -321,6 +440,7 @@ def _render_gallery(flash: str = "", flash_class: str = "flash-ok") -> str:
     html_out = html_out.replace("{last_source}", html.escape(str(last_source)))
     html_out = html_out.replace("{last_processed}", html.escape(str(last_processed)))
     html_out = html_out.replace("{next_name}", html.escape(str(next_name)))
+    html_out = html_out.replace("{bulk_bar}", bulk_bar)
     html_out = html_out.replace("{grid}", grid)
     return html_out
 
@@ -363,6 +483,23 @@ def gallery_upload():
     if skipped:
         msg += f" ({len(skipped)} skipped — unsupported type)"
 
+    return redirect(url_for("gallery.gallery_index", msg=msg))
+
+
+@gallery_bp.route("/gallery/delete-selected", methods=["POST"])
+def gallery_delete_selected():
+    names = request.form.getlist("filenames")
+    if not names:
+        return redirect(url_for("gallery.gallery_index", err="No images selected."))
+
+    deleted, failed = delete_many_from_library(SOURCE_IMAGES_DIR, names)
+    if deleted == 0:
+        return redirect(url_for("gallery.gallery_index", err="Could not delete selected images."))
+
+    label = "image" if deleted == 1 else "images"
+    msg = f"Deleted {deleted} {label}"
+    if failed:
+        msg += f" ({len(failed)} not found)"
     return redirect(url_for("gallery.gallery_index", msg=msg))
 
 
