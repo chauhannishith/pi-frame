@@ -5,12 +5,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from config import BINARY_PACK_MODE, DITHER_METHOD, FRAME_HEIGHT, FRAME_WIDTH, PREVIEW_PATH
 from library import next_image_for_processing
+from palette import EINK_PALETTE_RGB
 from processing.binary import pack_frame_buffer
-from processing.dither import indices_to_preview_rgb, quantize_to_palette
+from processing.dither import (
+    composite_indices_on_frame,
+    indices_to_preview_rgb,
+    palette_index_for_rgb,
+    quantize_to_palette,
+)
 from processing.resize import resize_for_display
 from processing.types import DitherMethod, PackMode, ResizeMode
 
@@ -52,12 +58,25 @@ def process_image_to_binary(
     )
 
     with Image.open(source_path) as img:
-        resized = resize_for_display(img, width, height, mode=resize_mode)
+        img = ImageOps.exif_transpose(img)
+        layout = resize_for_display(img, width, height, mode=resize_mode)
 
-    indices = quantize_to_palette(
-        resized,
-        palette_rgb=palette_rgb,
+    palette = palette_rgb if palette_rgb is not None else EINK_PALETTE_RGB
+    content_indices = quantize_to_palette(
+        layout.content,
+        palette_rgb=palette,
         method=dither_method,
+    )
+    pad_index = palette_index_for_rgb(layout.pad_color, palette)
+    paste_x, paste_y = layout.paste_xy
+    frame_w, frame_h = layout.frame_size
+    indices = composite_indices_on_frame(
+        content_indices,
+        frame_w,
+        frame_h,
+        paste_x,
+        paste_y,
+        pad_index,
     )
 
     frame_bytes = pack_frame_buffer(indices, mode=pack_mode)

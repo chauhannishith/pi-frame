@@ -280,8 +280,16 @@ def _download_picked_item(creds: Credentials, item: dict, destination: Path) -> 
     if not base_url:
         raise RuntimeError("Picked item has no download URL")
 
+    metadata = media_file.get("mediaFileMetadata") or {}
+    width = metadata.get("width")
+    height = metadata.get("height")
+    if width and height:
+        download_url = f"{base_url}=w{width}-h{height}"
+    else:
+        download_url = f"{base_url}=d"
+
     response = requests.get(
-        f"{base_url}=d",
+        download_url,
         headers=_auth_headers(creds),
         timeout=120,
     )

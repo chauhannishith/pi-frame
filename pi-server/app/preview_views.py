@@ -5,6 +5,8 @@ from __future__ import annotations
 import html
 import time
 
+from config import FRAME_HEIGHT, FRAME_WIDTH
+
 DITHER_OPTIONS = ("floyd_steinberg", "atkinson")
 
 DITHER_LABELS = {
@@ -55,16 +57,18 @@ def render_image_view_page(
     dithered_block = ""
     if show_dithered:
         dithered_block = f"""
-        <div class="panel-view">
+        <div class="panel-view panel-dithered">
           <h2>Dithered preview</h2>
-          <p class="hint">800×480 · 6-color · {html.escape(dither_method_label(dither_method))}</p>
-          <img class="preview-img" src="/preview.png?v={cache_bust}" alt="Dithered preview">
+          <p class="hint">{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color · {html.escape(dither_method_label(dither_method))} · 1:1 frame size</p>
+          <div class="preview-frame">
+            <img class="preview-img" src="/preview.png?v={cache_bust}" width="{FRAME_WIDTH}" height="{FRAME_HEIGHT}" alt="Dithered preview">
+          </div>
         </div>"""
 
     original_block = ""
     if original_url:
         original_block = f"""
-      <div class="panel-view">
+      <div class="panel-view panel-original">
         <h2>Original</h2>
         <p class="hint">Source file from library</p>
         <img class="original-img" src="{html.escape(original_url)}" alt="Original">
@@ -105,7 +109,7 @@ def render_image_view_page(
       min-height: 100vh;
       padding: 2rem 1.25rem 3rem;
     }}
-    .wrap {{ max-width: 920px; margin: 0 auto; }}
+    .wrap {{ max-width: {max(FRAME_WIDTH + 320, 920)}px; margin: 0 auto; }}
     h1 {{ font-size: 1.35rem; font-weight: 700; margin-bottom: 0.25rem; word-break: break-all; }}
     .sub {{ color: #5f6368; font-size: 0.88rem; margin-bottom: 1.25rem; }}
 
@@ -119,10 +123,18 @@ def render_image_view_page(
     nav a.active {{ background: #1a5fb4; color: #fff; border-color: #1a5fb4; }}
 
     .views {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
       gap: 1.25rem;
       margin-bottom: 1.25rem;
+    }}
+    .panel-original {{
+      flex: 0 1 260px;
+      max-width: 280px;
+    }}
+    .panel-dithered {{
+      flex: 0 0 auto;
     }}
     .panel-view {{
       background: #fff;
@@ -133,9 +145,26 @@ def render_image_view_page(
     }}
     .panel-view h2 {{ font-size: 0.92rem; font-weight: 600; color: #3c4043; margin-bottom: 0.35rem; }}
     .hint {{ font-size: 0.78rem; color: #80868b; margin-bottom: 0.75rem; }}
-    .preview-img, .original-img {{
+    .preview-frame {{
+      overflow: auto;
+      max-width: 100%;
+      border-radius: 8px;
+      border: 1px solid #e8eaed;
+      background: #eceff1;
+    }}
+    .preview-img {{
+      display: block;
+      width: {FRAME_WIDTH}px;
+      height: {FRAME_HEIGHT}px;
+      max-width: none;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }}
+    .original-img {{
       display: block;
       width: 100%;
+      max-width: 240px;
+      height: auto;
       border-radius: 8px;
       border: 1px solid #e8eaed;
       background: #eceff1;
