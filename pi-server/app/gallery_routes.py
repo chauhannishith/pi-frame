@@ -7,9 +7,23 @@ import html
 from flask import Blueprint, abort, redirect, request, send_file, url_for
 
 from config import SOURCE_IMAGES_DIR
-from frame_service import change_frame, generate_preview, process_specific_image, toggle_frame_orientation
+from frame_service import (
+    change_frame,
+    format_quick_action_message,
+    generate_preview,
+    process_specific_image,
+    toggle_frame_dither,
+    toggle_frame_orientation,
+)
 from processing.frame_orientation import orientation_label
-from settings_store import format_frame_output_status, get_default_dither_method, get_frame_orientation, set_frame_orientation
+from settings_store import (
+    format_frame_output_status,
+    get_active_dither_method,
+    get_default_dither_method,
+    get_frame_orientation,
+    set_frame_orientation,
+)
+from ui.dither_controls import dither_method_label
 from user_errors import format_user_error
 from library import (
     add_to_library,
@@ -205,6 +219,7 @@ def _render_gallery(
         frame_filename=frame_filename,
         frame_time=frame_time,
         frame_orientation=get_frame_orientation(),
+        dither_method=get_active_dither_method(),
     )
 
     return page_shell(
@@ -301,7 +316,7 @@ def gallery_change():
 def _orientation_flash_message(new_orientation: str, preview_source: str | None) -> str:
     label = orientation_label(new_orientation)
     if preview_source:
-        return f"Switched to {label} and regenerated preview for {preview_source}."
+        return format_quick_action_message(label, preview_source)
     return f"Frame orientation set to {label}."
 
 
@@ -312,6 +327,22 @@ def gallery_orientation():
     except Exception as exc:
         return redirect(url_for("gallery.gallery_index", err=f"Orientation change failed: {format_user_error(exc)}"))
     return redirect(url_for("gallery.gallery_index", msg=_orientation_flash_message(new_orientation, preview_source)))
+
+
+def _dither_flash_message(new_method: str, preview_source: str | None) -> str:
+    label = dither_method_label(new_method)
+    if preview_source:
+        return format_quick_action_message(label, preview_source)
+    return f"Default dither method set to {label}."
+
+
+@gallery_bp.route("/gallery/dither", methods=["POST"])
+def gallery_dither():
+    try:
+        new_method, preview_source = toggle_frame_dither()
+    except Exception as exc:
+        return redirect(url_for("gallery.gallery_index", err=f"Dither change failed: {format_user_error(exc)}"))
+    return redirect(url_for("gallery.gallery_index", msg=_dither_flash_message(new_method, preview_source)))
 
 
 @gallery_bp.route("/gallery/view/<filename>", methods=["GET", "POST"])

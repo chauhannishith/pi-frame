@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 from pathlib import Path
 
+from ui.dither_controls import dither_toggle_html
 from ui.orientation_controls import orientation_toggle_html
 
 _NAV_ITEMS = (
@@ -121,7 +122,13 @@ def gallery_sidebar(
     frame_filename: str,
     frame_time: str,
     frame_orientation: str = "landscape",
+    dither_method: str = "floyd_steinberg",
 ) -> str:
+    dither_html = dither_toggle_html(
+        dither_method,
+        action="/gallery/dither",
+        full_width=True,
+    )
     orientation_html = orientation_toggle_html(
         frame_orientation,
         action="/gallery/orientation",
@@ -138,7 +145,10 @@ def gallery_sidebar(
   <p class="sidebar-label">Frame output</p>
   <div class="stat-card"><strong>{html.escape(frame_status)}</strong></div>
   <div class="stat-card">{html.escape(frame_filename)} · {html.escape(frame_time)}</div>
-  {orientation_html}
+  <div class="quick-actions">
+    {dither_html}
+    {orientation_html}
+  </div>
 </div>
 <div class="sidebar-section">
   <p class="sidebar-label">Display</p>

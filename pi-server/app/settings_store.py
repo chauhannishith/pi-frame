@@ -57,13 +57,12 @@ def set_default_dither_method(method: str) -> None:
     save_settings(settings)
 
 
-def set_default_dither_method(method: str) -> None:
-    method = method.lower()
-    if method not in ("floyd_steinberg", "atkinson"):
-        raise ValueError("Invalid dither method")
-    settings = load_settings()
-    settings["default_dither_method"] = method
-    save_settings(settings)
+def get_active_dither_method() -> str:
+    """Dither method used for the current frame output, if known."""
+    method = str(load_settings().get("last_preview_dither") or "").lower()
+    if method in ("floyd_steinberg", "atkinson"):
+        return method
+    return get_default_dither_method()
 
 
 def get_frame_orientation() -> str:

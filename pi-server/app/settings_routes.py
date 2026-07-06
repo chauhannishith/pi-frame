@@ -4,9 +4,15 @@ from __future__ import annotations
 
 from flask import Blueprint, redirect, request, url_for
 
-from frame_service import toggle_frame_orientation
+from frame_service import format_quick_action_message, toggle_frame_dither, toggle_frame_orientation
 from processing.frame_orientation import orientation_label
-from settings_store import get_default_dither_method, get_frame_orientation, set_default_dither_method
+from settings_store import (
+    get_active_dither_method,
+    get_default_dither_method,
+    get_frame_orientation,
+    set_default_dither_method,
+)
+from ui.dither_controls import dither_method_label, dither_toggle_html
 from ui.layout import page_shell
 from ui.orientation_controls import orientation_toggle_html
 
@@ -16,8 +22,14 @@ settings_bp = Blueprint("settings", __name__)
 def _render_settings(flash: str = "", flash_kind: str = "ok") -> str:
     dither = get_default_dither_method()
     frame_orientation = get_frame_orientation()
+    active_dither = get_active_dither_method()
     fs_checked = " checked" if dither == "floyd_steinberg" else ""
     at_checked = " checked" if dither == "atkinson" else ""
+    dither_html = dither_toggle_html(
+        active_dither,
+        action="/settings/dither",
+        full_width=True,
+    )
     orientation_html = orientation_toggle_html(
         frame_orientation,
         action="/settings/orientation",
@@ -31,10 +43,13 @@ def _render_settings(flash: str = "", flash_kind: str = "ok") -> str:
   The driver wake schedule is set in ESP32 firmware (24h timer or GPIO 12 button).
 </p>
 
-<div class="panel form-stack settings-orientation-mobile">
-  <h3>Frame orientation</h3>
-  <p class="sub">Portrait rotates the processed image for vertical display. Regenerates preview when one exists.</p>
-  {orientation_html}
+<div class="panel form-stack settings-quick-actions-mobile">
+  <h3>Quick actions</h3>
+  <p class="sub">Switch orientation or dither and update <code>latest_frame.bin</code> for the active image.</p>
+  <div class="quick-actions">
+    {dither_html}
+    {orientation_html}
+  </div>
 </div>
 
 <form method="post" action="/settings" class="panel form-stack">
@@ -95,7 +110,7 @@ def settings_save():
 def _orientation_flash_message(new_orientation: str, preview_source: str | None) -> str:
     label = orientation_label(new_orientation)
     if preview_source:
-        return f"Switched to {label} and regenerated preview for {preview_source}."
+        return format_quick_action_message(label, preview_source)
     return f"Frame orientation set to {label}."
 
 
@@ -106,3 +121,19 @@ def settings_orientation():
     except (ValueError, TypeError, OSError) as exc:
         return redirect(url_for("settings.settings_index", err=str(exc)))
     return redirect(url_for("settings.settings_index", msg=_orientation_flash_message(new_orientation, preview_source)))
+
+
+def _dither_flash_message(new_method: str, preview_source: str | None) -> str:
+    label = dither_method_label(new_method)
+    if preview_source:
+        return format_quick_action_message(label, preview_source)
+    return f"Default dither method set to {label}."
+
+
+@settings_bp.route("/settings/dither", methods=["POST"])
+def settings_dither():
+    try:
+        new_method, preview_source = toggle_frame_dither()
+    except (ValueError, TypeError, OSError) as exc:
+        return redirect(url_for("settings.settings_index", err=str(exc)))
+    return redirect(url_for("settings.settings_index", msg=_dither_flash_message(new_method, preview_source)))

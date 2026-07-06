@@ -436,8 +436,15 @@ a { color: var(--primary); }
 .narrow-page { max-width: 32rem; margin: 0 auto; padding: 1.5rem; }
 
 .orientation-toggle { margin-top: 0.5rem; }
+.dither-quick-toggle { margin-top: 0.5rem; }
 
-.settings-orientation-mobile {
+.quick-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.settings-quick-actions-mobile {
   display: block;
   margin-bottom: 1.5rem;
 }
@@ -447,7 +454,7 @@ a { color: var(--primary); }
   .sidebar { display: block; }
   .mobile-nav { display: none; }
   .main-content { padding: 1.5rem 2rem 2rem; }
-  .settings-orientation-mobile { display: none; }
+  .settings-quick-actions-mobile { display: none; }
 }
 
 @media (max-width: 767px) {

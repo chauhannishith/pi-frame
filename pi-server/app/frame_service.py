@@ -16,10 +16,12 @@ from config import (
 from library import record_processed_source, resolve_library_file
 from processing.pipeline import process_image_to_binary, run_library_processing
 from settings_store import (
+    get_active_dither_method,
     get_default_dither_method,
     get_frame_orientation,
     load_settings,
     record_preview,
+    set_default_dither_method,
     set_frame_orientation,
 )
 
@@ -30,6 +32,33 @@ processing_lock = threading.Lock()
 
 def _orientation() -> str:
     return get_frame_orientation()
+
+
+def format_quick_action_message(changed: str, source: str | None) -> str:
+    if source:
+        return (
+            f"Updated frame output ({changed}) for {source}. "
+            "Press the wake button to refresh the display."
+        )
+    return changed
+
+
+def reprocess_active_output(
+    *,
+    dither_method: str | None = None,
+    frame_orientation: str | None = None,
+) -> str | None:
+    """Reprocess the last active image to latest_frame.bin."""
+    preview_source = load_settings().get("last_preview_source")
+    if not preview_source:
+        return None
+
+    path = resolve_library_file(SOURCE_IMAGES_DIR, preview_source)
+    if path is None:
+        return None
+
+    process_specific_image(path, dither_method=dither_method, frame_orientation=frame_orientation)
+    return preview_source
 
 
 def change_frame(dither_method: str | None = None) -> str | None:
@@ -58,21 +87,21 @@ def change_frame(dither_method: str | None = None) -> str | None:
 
 
 def toggle_frame_orientation() -> tuple[str, str | None]:
-    """Toggle orientation and regenerate preview when a preview source exists."""
+    """Toggle orientation and update frame output when an active source exists."""
     current = get_frame_orientation()
     new = "portrait" if current == "landscape" else "landscape"
     set_frame_orientation(new)
+    source = reprocess_active_output(frame_orientation=new)
+    return new, source
 
-    preview_source = load_settings().get("last_preview_source")
-    if not preview_source:
-        return new, None
 
-    path = resolve_library_file(SOURCE_IMAGES_DIR, preview_source)
-    if path is None:
-        return new, None
-
-    generate_preview(path, get_default_dither_method(), new)
-    return new, preview_source
+def toggle_frame_dither() -> tuple[str, str | None]:
+    """Toggle dither method and update frame output when an active source exists."""
+    current = get_active_dither_method()
+    new = "atkinson" if current == "floyd_steinberg" else "floyd_steinberg"
+    set_default_dither_method(new)
+    source = reprocess_active_output(dither_method=new)
+    return new, source
 
 
 def generate_preview(
