@@ -8,7 +8,6 @@ import base64
 import hashlib
 import logging
 import os
-import random
 import secrets
 from datetime import datetime, timezone
 from pathlib import Path
@@ -240,16 +239,29 @@ def get_picker_session(creds: Credentials, session_id: str) -> dict:
 
 
 def list_picked_media_items(creds: Credentials, session_id: str) -> list[dict]:
-    response = requests.get(
-        f"{PICKER_API_BASE}/mediaItems",
-        headers=_auth_headers(creds),
-        params={"sessionId": session_id},
-        timeout=30,
-    )
-    if not response.ok:
-        _raise_api_error(response, "List picked media items")
-    data = response.json()
-    return data.get("mediaItems", data.get("pickedMediaItems", []))
+    items: list[dict] = []
+    page_token = None
+
+    while True:
+        params: dict[str, str | int] = {"sessionId": session_id, "pageSize": 100}
+        if page_token:
+            params["pageToken"] = page_token
+
+        response = requests.get(
+            f"{PICKER_API_BASE}/mediaItems",
+            headers=_auth_headers(creds),
+            params=params,
+            timeout=30,
+        )
+        if not response.ok:
+            _raise_api_error(response, "List picked media items")
+        data = response.json()
+        items.extend(data.get("mediaItems", data.get("pickedMediaItems", [])))
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+
+    return items
 
 
 def delete_picker_session(creds: Credentials, session_id: str) -> None:
@@ -278,13 +290,28 @@ def _download_picked_item(creds: Credentials, item: dict, destination: Path) -> 
     destination.write_bytes(response.content)
 
 
+def _dest_path_for_picked_item(
+    destination_dir: Path,
+    item: dict,
+    batch_timestamp: str,
+    index: int,
+) -> Path:
+    media_file = item.get("mediaFile") or item
+    filename = media_file.get("filename", "google_photo.jpg")
+    stem = Path(filename).stem
+    suffix = Path(filename).suffix.lower() or ".jpg"
+    if suffix not in {".jpg", ".jpeg", ".png"}:
+        suffix = ".jpg"
+    return destination_dir / f"google_{batch_timestamp}_{index:03d}_{stem}{suffix}"
+
+
 def import_picked_photos(
     session_id: str,
     destination_dir: str | Path,
     token_path: str | Path | None = None,
-) -> Path:
+) -> list[Path]:
     """
-    Download the first picked image from a completed Picker session.
+    Download every image the user picked in a completed Picker session.
 
     Requires the user to finish selecting photos in the Google Photos picker UI first.
     """
@@ -306,25 +333,21 @@ def import_picked_photos(
     if not photos:
         raise RuntimeError("No photos were selected in the picker")
 
-    item = random.choice(photos)
-    media_file = item.get("mediaFile") or item
-    filename = media_file.get("filename", "google_photo.jpg")
-    stem = Path(filename).stem
-    suffix = Path(filename).suffix.lower() or ".jpg"
-    if suffix not in {".jpg", ".jpeg", ".png"}:
-        suffix = ".jpg"
-
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    dest = Path(destination_dir) / f"google_{timestamp}_{stem}{suffix}"
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    directory = Path(destination_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    batch_timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    imported: list[Path] = []
 
     try:
-        _download_picked_item(creds, item, dest)
+        for index, item in enumerate(photos, start=1):
+            dest = _dest_path_for_picked_item(directory, item, batch_timestamp, index)
+            _download_picked_item(creds, item, dest)
+            imported.append(dest)
     finally:
         delete_picker_session(creds, session_id)
 
-    logger.info("Imported picked Google Photo: %s", dest.name)
-    return dest
+    logger.info("Imported %d Google Photo(s)", len(imported))
+    return imported
 
 
 def picker_uri_with_autoclose(picker_uri: str) -> str:

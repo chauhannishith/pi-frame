@@ -172,8 +172,7 @@ def google_index():
           <button type="submit">Pick photo to library only</button>
         </form>
         <p style="color:#666;font-size:0.85rem;margin-top:0.75rem">
-          Google no longer allows apps to grab random photos automatically.
-          You choose photos in Google&apos;s picker, then pi-frame imports your selection.
+          Select photos in Google&apos;s picker — pi-frame imports your full selection into the library for rotation.
         </p>
         <form method="post" action="/google/disconnect" style="margin-top:1.5rem">
           <button type="submit">Disconnect</button>
@@ -279,10 +278,17 @@ def google_pick():
 def google_pick_wait(session_id: str):
     library_only = request.args.get("library_only") == "1"
     try:
-        dest = import_picked_photos(session_id, SOURCE_IMAGES_DIR)
+        imported = import_picked_photos(session_id, SOURCE_IMAGES_DIR)
         if library_only:
-            return redirect(url_for("gallery.gallery_index", msg=f"Imported {dest.name} from Google Photos"))
-        name = process_specific_image(dest)
+            count = len(imported)
+            label = "photo" if count == 1 else "photos"
+            return redirect(
+                url_for(
+                    "gallery.gallery_index",
+                    msg=f"Imported {count} {label} from Google Photos",
+                )
+            )
+        name = process_specific_image(imported[0])
         return redirect(url_for("gallery.gallery_view", filename=name, generated=1))
     except RuntimeError as exc:
         if str(exc) == "PICK_NOT_READY":
