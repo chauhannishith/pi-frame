@@ -9,7 +9,7 @@ import time
 from flask import Blueprint, abort, redirect, request, send_file, url_for
 
 from config import PREVIEW_PATH, SOURCE_IMAGES_DIR
-from frame_service import change_frame, process_specific_image
+from frame_service import change_frame, generate_preview, process_specific_image
 from settings_store import (
     format_next_rotation,
     get_default_dither_method,
@@ -130,8 +130,8 @@ def _frame_preview_block(last_source: str | None) -> str:
     safe = html.escape(last_source)
     return f"""
 <div class="panel">
-  <h3>Current frame</h3>
-  <p class="sub">{safe} — press the driver wake button to refresh the display</p>
+  <h3>Frame preview</h3>
+  <p class="sub">{safe} — last generated preview (may differ from what is on the display)</p>
   <div class="frame-preview-section">
     <div class="frame-bezel">
       <div class="frame-bezel-inner">
@@ -347,16 +347,19 @@ def gallery_view(filename: str):
         dither_method = get_default_dither_method()
 
     if request.method == "POST":
+        action = request.form.get("action", "preview")
         try:
-            process_specific_image(path, dither_method=dither_method)
+            if action == "push":
+                process_specific_image(path, dither_method=dither_method)
+            else:
+                generate_preview(path, dither_method=dither_method)
         except Exception as exc:
-            return redirect(url_for("gallery.gallery_index", err=f"Push failed: {format_user_error(exc)}"))
-        return redirect(url_for(
-            "gallery.gallery_view",
-            filename=filename,
-            generated=1,
-            method=dither_method,
-        ))
+            label = "Push" if action == "push" else "Preview"
+            return redirect(url_for("gallery.gallery_index", err=f"{label} failed: {format_user_error(exc)}"))
+        params = {"filename": filename, "generated": 1, "method": dither_method}
+        if action == "push":
+            params["pushed"] = 1
+        return redirect(url_for("gallery.gallery_view", **params))
 
     show_dithered = request.args.get("generated") == "1"
     if show_dithered:
@@ -364,12 +367,19 @@ def gallery_view(filename: str):
         if dither_method not in ("floyd_steinberg", "atkinson"):
             dither_method = get_default_dither_method()
 
+    flash = ""
+    flash_kind = "ok"
+    if request.args.get("pushed") == "1":
+        flash = "Pushed to frame. Press the driver wake button to update the display."
+
     return render_image_view_page(
         source_name=filename,
         original_url=url_for("gallery.gallery_file", filename=filename),
         form_action=url_for("gallery.gallery_view", filename=filename),
         dither_method=dither_method,
         show_dithered=show_dithered,
+        flash=flash,
+        flash_kind=flash_kind,
     )
 
 

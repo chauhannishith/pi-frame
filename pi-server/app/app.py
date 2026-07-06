@@ -29,10 +29,9 @@ from config import (
     SOURCE_IMAGES_DIR,
     UPLOAD_TEMP_DIR,
 )
-from frame_service import processing_lock
+from frame_service import generate_preview
 from library import resolve_library_file
 from preview_views import DITHER_OPTIONS, render_image_view_page
-from processing import process_image_to_binary
 from processing.pipeline import run_library_processing
 from settings_store import get_default_dither_method, get_processing_interval_seconds
 from ui.layout import page_shell
@@ -149,15 +148,7 @@ def upload():
 
     try:
         uploaded.save(temp_path)
-        with processing_lock:
-            process_image_to_binary(
-                temp_path,
-                LATEST_FRAME_PATH,
-                width=FRAME_WIDTH,
-                height=FRAME_HEIGHT,
-                preview_path=PREVIEW_PATH,
-                dither_method=dither_method,
-            )
+        generate_preview(temp_path, dither_method=dither_method)
         return redirect(f"/preview?method={dither_method}&generated=1", code=303)
     except Exception as exc:
         logger.exception("Manual upload processing failed")

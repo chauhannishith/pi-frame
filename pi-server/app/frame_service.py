@@ -44,6 +44,26 @@ def change_frame(dither_method: str | None = None) -> str | None:
     return result.name
 
 
+def generate_preview(
+    source: str | Path,
+    dither_method: str | None = None,
+) -> str:
+    """Dither an image and write preview PNG only — does not update the frame binary."""
+    method = dither_method or get_default_dither_method()
+    source_path = Path(source)
+    with processing_lock:
+        process_image_to_binary(
+            source_path,
+            output=None,
+            width=FRAME_WIDTH,
+            height=FRAME_HEIGHT,
+            preview_path=PREVIEW_PATH,
+            dither_method=method,
+        )
+    logger.info("Generated preview for: %s", source_path.name)
+    return source_path.name
+
+
 def process_specific_image(
     source: str | Path,
     dither_method: str | None = None,

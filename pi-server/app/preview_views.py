@@ -46,6 +46,8 @@ def render_image_view_page(
     nav_active: str = "gallery",
     page_heading: str | None = None,
     show_controls: bool = True,
+    flash: str = "",
+    flash_kind: str = "ok",
 ) -> str:
     if dither_method not in DITHER_OPTIONS:
         dither_method = "floyd_steinberg"
@@ -76,16 +78,19 @@ def render_image_view_page(
     if show_controls:
         controls_block = f"""
 <div class="panel form-stack">
-  <h3>Push to frame</h3>
-  <p class="sub">Process with the selected dither method and update <code>latest_frame.bin</code>. Then press the driver wake button.</p>
+  <h3>Preview &amp; push</h3>
+  <p class="sub">Generate preview to see the dithered result here. Push to frame updates <code>latest_frame.bin</code> — then press the driver wake button.</p>
   {_dither_toggle_html(dither_method)}
   <form id="preview-form" method="post" action="{html.escape(form_action)}">
-    <button type="submit" class="btn btn-primary">Push to frame</button>
+    <div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-top:0.25rem">
+      <button type="submit" name="action" value="preview" class="btn btn-secondary">Generate preview</button>
+      <button type="submit" name="action" value="push" class="btn btn-primary">Push to frame</button>
+    </div>
   </form>
 </div>"""
 
     sub_text = (
-        "Pick a dither method and push to frame"
+        "Pick a dither method, generate a preview, or push to frame"
         if show_controls
         else f"{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color dithered output"
     )
@@ -107,6 +112,8 @@ def render_image_view_page(
         title=safe_name,
         nav_active=nav_active,
         body_html=body,
+        flash=flash,
+        flash_kind=flash_kind,
         use_sidebar=False,
         show_change=True,
     )
