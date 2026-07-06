@@ -15,7 +15,8 @@ pi-server/.env
 pi-server/app/latest_frame.bin
 pi-server/app/preview.png
 pi-server/app/uploads/
-pi-server/app/data/
+pi-server/app/data/*
+!pi-server/app/data/.gitkeep
 
 # Source images (user-provided, not committed)
 pi-server/app/source_images/*
