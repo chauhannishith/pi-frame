@@ -327,6 +327,14 @@ def import_picked_photos(
     return dest
 
 
+def picker_uri_with_autoclose(picker_uri: str) -> str:
+    if not picker_uri:
+        return picker_uri
+    if not picker_uri.rstrip("/").endswith("autoclose"):
+        return f"{picker_uri.rstrip('/')}/autoclose"
+    return picker_uri
+
+
 def start_photo_pick(token_path: str | Path | None = None) -> tuple[str, str]:
     """
     Create a picker session.
@@ -339,12 +347,9 @@ def start_photo_pick(token_path: str | Path | None = None) -> tuple[str, str]:
 
     session = create_picker_session(creds)
     session_id = _session_id_from_response(session)
-    picker_uri = session.get("pickerUri")
+    picker_uri = picker_uri_with_autoclose(session.get("pickerUri", ""))
     if not session_id or not picker_uri:
         raise RuntimeError(f"Unexpected picker session response: {session}")
-
-    if not picker_uri.rstrip("/").endswith("autoclose"):
-        picker_uri = f"{picker_uri.rstrip('/')}/autoclose"
 
     return session_id, picker_uri
 

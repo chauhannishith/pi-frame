@@ -11,10 +11,13 @@ from google_photos import (
     disconnect,
     exchange_code_for_credentials,
     get_authorization_url,
+    get_picker_session,
     import_picked_photos,
     is_connected,
     is_google_photos_configured,
+    load_credentials,
     oauth_state_error,
+    picker_uri_with_autoclose,
     start_photo_pick,
 )
 from user_errors import format_user_error
@@ -73,52 +76,33 @@ def _missing_config_vars() -> list[str]:
     return missing
 
 
-PICK_START_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="2;url={wait_url}">
-  <title>Opening Google Photos picker — pi-frame</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; color: #222; }}
-    .status {{ padding: 1rem; border-radius: 8px; background: #e8f0fe; border: 1px solid #aecbfa; font-size: 0.95rem; }}
-    a.btn {{ background: #1a73e8; color: #fff; padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none; display: inline-block; margin-top: 1rem; }}
-  </style>
-  <script>window.open("{picker_uri}", "_blank");</script>
-</head>
-<body>
-  <h1>Pick a photo</h1>
-  <div class="status">Opening Google Photos in a new tab…</div>
-  <p style="color:#666;font-size:0.9rem;margin-top:1.5rem">
-    Select one or more photos, then return to this tab — it will import automatically.
-  </p>
-  <a class="btn" href="{picker_uri}" target="_blank" rel="noopener">Open picker again</a>
-  <p style="margin-top:1.5rem"><a href="/google">Cancel</a></p>
-</body>
-</html>"""
-
-
 PICK_WAIT_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="{refresh_seconds}">
-  <title>Waiting for photo pick — pi-frame</title>
+  <meta http-equiv="refresh" content="{refresh_seconds};url={wait_url}">
+  <title>Pick a photo — pi-frame</title>
   <style>
     body {{ font-family: system-ui, sans-serif; max-width: 560px; margin: 2rem auto; padding: 0 1rem; color: #222; }}
-    .status {{ padding: 1rem; border-radius: 8px; background: #fef7e0; border: 1px solid #fdd663; font-size: 0.95rem; }}
+    .status {{ padding: 1rem; border-radius: 8px; background: #fef7e0; border: 1px solid #fdd663; font-size: 0.95rem; margin-bottom: 1.25rem; }}
+    a.btn {{ background: #1a73e8; color: #fff; padding: 0.75rem 1.4rem; border-radius: 6px; text-decoration: none; display: inline-block; font-size: 1rem; }}
+    ol {{ color: #444; font-size: 0.95rem; line-height: 1.6; padding-left: 1.2rem; }}
   </style>
 </head>
 <body>
   <h1>Pick a photo</h1>
   <div class="status">{message}</div>
-  <p style="color:#666;font-size:0.9rem;margin-top:1.5rem">
-    Finish selecting in the Google Photos window, then return here.
-    This page refreshes automatically.
+  <ol>
+    <li>Click <strong>Open Google Photos</strong> below</li>
+    <li>Select one or more photos, then confirm</li>
+    <li>Return to this tab — import runs automatically</li>
+  </ol>
+  <p><a class="btn" href="{picker_uri}" target="_blank" rel="noopener">Open Google Photos</a></p>
+  <p style="color:#666;font-size:0.85rem;margin-top:1.5rem">
+    Checking every {refresh_seconds}s for your selection…
   </p>
-  <p><a href="/google">Back to Google Photos</a></p>
+  <p><a href="/google">Cancel</a></p>
 </body>
 </html>"""
 
@@ -188,7 +172,8 @@ def google_index():
           <button type="submit">Pick photo to library only</button>
         </form>
         <p style="color:#666;font-size:0.85rem;margin-top:0.75rem">
-          Opens Google&apos;s photo picker — choose one or more photos, then return here to import.
+          Google no longer allows apps to grab random photos automatically.
+          You choose photos in Google&apos;s picker, then pi-frame imports your selection.
         </p>
         <form method="post" action="/google/disconnect" style="margin-top:1.5rem">
           <button type="submit">Disconnect</button>
@@ -244,20 +229,50 @@ def google_callback():
         )
 
 
-@google_bp.route("/google/pick", methods=["POST"])
-def google_pick():
-    library_only = request.args.get("library_only") == "1"
+def _poll_interval_seconds(session: dict) -> int:
+    raw = session.get("pollingConfig", {}).get("pollInterval", "5s")
     try:
-        session_id, picker_uri = start_photo_pick()
-    except Exception as exc:
-        return redirect(url_for("google.google_index", err=format_user_error(exc)))
+        return max(3, int(str(raw).rstrip("s")))
+    except ValueError:
+        return 5
 
+
+def _render_pick_wait(session_id: str, library_only: bool, message: str) -> str:
+    creds = load_credentials()
+    if creds is None:
+        raise RuntimeError("Google Photos not connected — visit /google/connect first")
+
+    session = get_picker_session(creds, session_id)
+    picker_uri = picker_uri_with_autoclose(session.get("pickerUri", ""))
+    refresh_seconds = _poll_interval_seconds(session)
     wait_url = url_for(
         "google.google_pick_wait",
         session_id=session_id,
         library_only=1 if library_only else 0,
     )
-    return PICK_START_HTML.format(picker_uri=picker_uri, wait_url=wait_url)
+    return PICK_WAIT_HTML.format(
+        message=message,
+        picker_uri=picker_uri,
+        refresh_seconds=refresh_seconds,
+        wait_url=wait_url,
+    )
+
+
+@google_bp.route("/google/pick", methods=["POST"])
+def google_pick():
+    library_only = request.args.get("library_only") == "1"
+    try:
+        session_id, _picker_uri = start_photo_pick()
+    except Exception as exc:
+        return redirect(url_for("google.google_index", err=format_user_error(exc)))
+
+    return redirect(
+        url_for(
+            "google.google_pick_wait",
+            session_id=session_id,
+            library_only=1 if library_only else 0,
+        )
+    )
 
 
 @google_bp.route("/google/pick/wait/<session_id>", methods=["GET"])
@@ -271,9 +286,10 @@ def google_pick_wait(session_id: str):
         return redirect(url_for("gallery.gallery_view", filename=name, generated=1))
     except RuntimeError as exc:
         if str(exc) == "PICK_NOT_READY":
-            return PICK_WAIT_HTML.format(
-                refresh_seconds=3,
-                message="Waiting for your photo selection…",
+            return _render_pick_wait(
+                session_id,
+                library_only,
+                "Waiting for your photo selection…",
             )
         return redirect(url_for("google.google_index", err=format_user_error(exc)))
     except Exception as exc:
