@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import html
-import os
-import time
 
 from flask import Blueprint, abort, redirect, request, send_file, url_for
 
-from config import PREVIEW_PATH, SOURCE_IMAGES_DIR
+from config import SOURCE_IMAGES_DIR
 from frame_service import change_frame, generate_preview, process_specific_image
 from settings_store import format_next_driver_wake, get_default_dither_method
 from user_errors import format_user_error
@@ -117,26 +115,6 @@ def _render_card(img: dict, active_name: str | None) -> str:
 </div>"""
 
 
-def _frame_preview_block(last_source: str | None) -> str:
-    if not last_source or not os.path.isfile(PREVIEW_PATH):
-        return ""
-    cache_bust = int(time.time())
-    safe = html.escape(last_source)
-    return f"""
-<div class="panel">
-  <h3>Frame preview</h3>
-  <p class="sub">{safe} — last generated preview (may differ from what is on the display)</p>
-  <div class="frame-preview-section">
-    <div class="frame-bezel">
-      <div class="frame-bezel-inner">
-        <img src="/preview.png?v={cache_bust}" alt="Current frame preview">
-      </div>
-      <p class="frame-bezel-label">pi-frame · 7.3&quot;</p>
-    </div>
-  </div>
-</div>"""
-
-
 def _render_gallery(
     flash: str = "",
     flash_kind: str = "ok",
@@ -200,8 +178,6 @@ def _render_gallery(
     <a class="btn btn-secondary" href="/google">Import from Google</a>
   </div>
 </div>
-
-{_frame_preview_block(status.get("last_source"))}
 
 <div class="section-head">
   <div>

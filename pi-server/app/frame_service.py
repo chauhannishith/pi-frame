@@ -15,7 +15,7 @@ from config import (
 )
 from library import record_processed_source
 from processing.pipeline import process_image_to_binary, run_library_processing
-from settings_store import get_default_dither_method
+from settings_store import get_default_dither_method, record_preview
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ def change_frame(dither_method: str | None = None) -> str | None:
         )
     if result is None:
         return None
+    record_preview(result.name, method)
     logger.info("Frame changed to %s", result.name)
     return result.name
 
@@ -60,6 +61,7 @@ def generate_preview(
             preview_path=PREVIEW_PATH,
             dither_method=method,
         )
+    record_preview(source_path.name, method)
     logger.info("Generated preview for: %s", source_path.name)
     return source_path.name
 
@@ -81,5 +83,6 @@ def process_specific_image(
             dither_method=method,
         )
         record_processed_source(source_path.name)
+    record_preview(source_path.name, method)
     logger.info("Processed specific image: %s", source_path.name)
     return source_path.name

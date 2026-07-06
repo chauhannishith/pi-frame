@@ -22,6 +22,14 @@ def dither_method_label(method: str) -> str:
     return DITHER_LABELS.get(method, method)
 
 
+def dithered_preview_img_html(cache_bust: int | None = None) -> str:
+    bust = int(time.time()) if cache_bust is None else cache_bust
+    return (
+        f'<img class="preview-img-full" src="/preview.png?v={bust}" '
+        f'width="{FRAME_WIDTH}" height="{FRAME_HEIGHT}" alt="Dithered preview">'
+    )
+
+
 def _dither_toggle_html(selected: str, form_id: str = "preview-form") -> str:
     options = []
     for value in DITHER_OPTIONS:
@@ -62,7 +70,7 @@ def render_image_view_page(
     <div class="view-panel dithered">
       <h3 style="font-size:0.95rem;margin-bottom:0.35rem">Dithered output</h3>
       <p class="sub" style="margin-bottom:0.75rem">{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color · {html.escape(dither_method_label(dither_method))}</p>
-      <img class="preview-img-full" src="/preview.png?v={cache_bust}" width="{FRAME_WIDTH}" height="{FRAME_HEIGHT}" alt="Dithered preview">
+      {dithered_preview_img_html(cache_bust)}
     </div>"""
 
     original_block = ""
