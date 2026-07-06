@@ -207,21 +207,34 @@ def _layout_portrait_fit(
 
     top = compute_vertical_crop_top(new_h, target_h, focal_y=focal_y)
     content = resized.crop((0, top, new_w, top + target_h))
+    content_w, content_h = content.size
 
+    if content_w > target_w:
+        left = compute_horizontal_crop_left(content_w, target_w, focal_x=focal_x)
+        content = content.crop((left, 0, left + target_w, content_h))
+        if faces:
+            logger.info(
+                "Portrait layout: %d face(s), horizontal crop left=%d",
+                len(faces),
+                left,
+            )
+        else:
+            logger.info("Portrait layout: no faces — horizontal crop left=%d", left)
+        return DisplayLayout(content=content, frame_size=(target_w, target_h))
+
+    pad_color = adaptive_pad_color(original_rgb)
+    paste_x = compute_paste_x(target_w, content_w, focal_x=focal_x)
+    logger.info(
+        "Portrait layout: content %dx%d, will pad %d px with %s after dither",
+        content_w,
+        content_h,
+        target_w - content_w,
+        pad_color,
+    )
     if faces:
         logger.info("Portrait layout: %d face(s), vertical crop top=%d", len(faces), top)
     else:
         logger.info("Portrait layout: no faces — top-weighted vertical crop top=%d", top)
-
-    pad_color = adaptive_pad_color(original_rgb)
-    paste_x = compute_paste_x(target_w, content.size[0], focal_x=focal_x)
-    logger.info(
-        "Portrait layout: content %dx%d, will pad %d px with %s after dither",
-        content.size[0],
-        content.size[1],
-        target_w - content.size[0],
-        pad_color,
-    )
     return DisplayLayout(
         content=content,
         frame_size=(target_w, target_h),
