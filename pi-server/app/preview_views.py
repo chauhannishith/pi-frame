@@ -6,6 +6,9 @@ import html
 import time
 
 from config import FRAME_HEIGHT, FRAME_WIDTH
+from processing.frame_orientation import normalize_orientation, orientation_label
+from ui.layout import page_shell
+from ui.orientation_controls import orientation_toggle_html
 
 DITHER_OPTIONS = ("floyd_steinberg", "atkinson")
 
@@ -21,17 +24,29 @@ def dither_method_label(method: str) -> str:
     return DITHER_LABELS.get(method, method)
 
 
+def dithered_preview_img_html(cache_bust: int | None = None) -> str:
+    bust = int(time.time()) if cache_bust is None else cache_bust
+    return (
+        f'<img class="preview-img-full" src="/preview.png?v={bust}" '
+        f'width="{FRAME_WIDTH}" height="{FRAME_HEIGHT}" alt="Dithered preview">'
+    )
+
+
 def _dither_toggle_html(selected: str, form_id: str = "preview-form") -> str:
     options = []
     for value in DITHER_OPTIONS:
         checked = " checked" if value == selected else ""
         label = dither_method_label(value)
         options.append(f"""
-        <label class="toggle-option">
-          <input type="radio" name="dither_method" value="{value}" form="{form_id}"{checked}>
-          <span>{label}</span>
-        </label>""")
+    <label>
+      <input type="radio" name="dither_method" value="{value}" form="{form_id}"{checked}>
+      <span>{label}</span>
+    </label>""")
     return f'<div class="dither-toggle">{"".join(options)}</div>'
+
+
+def _orientation_controls_html(current: str, form_id: str = "preview-form") -> str:
+    return orientation_toggle_html(current, form_id=form_id)
 
 
 def render_image_view_page(
@@ -39,213 +54,85 @@ def render_image_view_page(
     source_name: str,
     form_action: str,
     dither_method: str = "floyd_steinberg",
+    frame_orientation: str = "landscape",
     show_dithered: bool = False,
     original_url: str | None = None,
     back_href: str = "/gallery",
     nav_active: str = "gallery",
     page_heading: str | None = None,
     show_controls: bool = True,
+    flash: str = "",
+    flash_kind: str = "ok",
 ) -> str:
-    """Render the unified full-view page with original, optional dithered preview, and generate controls."""
     if dither_method not in DITHER_OPTIONS:
         dither_method = "floyd_steinberg"
+    frame_orientation = normalize_orientation(frame_orientation)
 
     safe_name = html.escape(source_name)
     heading = html.escape(page_heading or source_name)
     cache_bust = int(time.time())
+    orient_hint = orientation_label(frame_orientation)
 
     dithered_block = ""
     if show_dithered:
         dithered_block = f"""
-        <div class="panel-view panel-dithered">
-          <h2>Dithered preview</h2>
-          <p class="hint">{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color · {html.escape(dither_method_label(dither_method))} · 1:1 frame size</p>
-          <div class="preview-frame">
-            <img class="preview-img" src="/preview.png?v={cache_bust}" width="{FRAME_WIDTH}" height="{FRAME_HEIGHT}" alt="Dithered preview">
-          </div>
-        </div>"""
+    <div class="view-panel dithered">
+      <h3 style="font-size:0.95rem;margin-bottom:0.35rem">Dithered output</h3>
+      <p class="sub" style="margin-bottom:0.75rem">{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color · {html.escape(dither_method_label(dither_method))} · {html.escape(orient_hint)}</p>
+      {dithered_preview_img_html(cache_bust)}
+    </div>"""
 
     original_block = ""
     if original_url:
         original_block = f"""
-      <div class="panel-view panel-original">
-        <h2>Original</h2>
-        <p class="hint">Source file from library</p>
-        <img class="original-img" src="{html.escape(original_url)}" alt="Original">
-      </div>"""
-
-    nav_gallery = "active" if nav_active == "gallery" else ""
-    nav_preview = "active" if nav_active == "preview" else ""
+    <div class="view-panel original">
+      <h3 style="font-size:0.95rem;margin-bottom:0.35rem">Original</h3>
+      <p class="sub" style="margin-bottom:0.75rem">Source file</p>
+      <img src="{html.escape(original_url)}" alt="Original" style="width:100%;max-width:240px;border-radius:0.75rem">
+    </div>"""
 
     controls_block = ""
     if show_controls:
         controls_block = f"""
-    <div class="controls">
-      <h2>Generate dithered preview</h2>
-      {_dither_toggle_html(dither_method)}
-      <form id="preview-form" method="post" action="{html.escape(form_action)}">
-        <button type="submit">Generate preview</button>
-      </form>
-    </div>"""
+<div class="panel form-stack">
+  <h3>Preview &amp; push</h3>
+  <p class="sub">Generate preview to see the dithered result here. Push to frame updates <code>latest_frame.bin</code> — then press the driver wake button.</p>
+  {_dither_toggle_html(dither_method)}
+  {_orientation_controls_html(frame_orientation)}
+  <form id="preview-form" method="post" action="{html.escape(form_action)}">
+    <input type="hidden" name="frame_orientation" value="{html.escape(frame_orientation)}">
+    <div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-top:0.25rem">
+      <button type="submit" name="action" value="preview" class="btn btn-secondary">Generate preview</button>
+      <button type="submit" name="action" value="push" class="btn btn-primary">Push to frame</button>
+    </div>
+  </form>
+</div>"""
 
     sub_text = (
-        "Full view · pick a dither method and click Generate preview"
+        "Pick a dither method, generate a preview, or push to frame"
         if show_controls
-        else "800×480 · 6-color dithered output"
+        else f"{FRAME_WIDTH}×{FRAME_HEIGHT} · 6-color dithered output"
     )
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{safe_name} — pi-frame</title>
-  <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f2f5;
-      color: #1a1a1a;
-      min-height: 100vh;
-      padding: 2rem 1.25rem 3rem;
-    }}
-    .wrap {{ max-width: {max(FRAME_WIDTH + 320, 920)}px; margin: 0 auto; }}
-    h1 {{ font-size: 1.35rem; font-weight: 700; margin-bottom: 0.25rem; word-break: break-all; }}
-    .sub {{ color: #5f6368; font-size: 0.88rem; margin-bottom: 1.25rem; }}
+    body = f"""
+<h1 style="font-size:1.35rem;margin-bottom:0.25rem;word-break:break-all">{heading}</h1>
+<p style="color:var(--on-surface-muted);font-size:0.88rem;margin-bottom:1.25rem">{sub_text}</p>
 
-    nav {{ display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }}
-    nav a {{
-      color: #3c4043; text-decoration: none; font-size: 0.88rem; font-weight: 500;
-      padding: 0.45rem 0.9rem; border-radius: 999px; background: #fff;
-      border: 1px solid #dadce0;
-    }}
-    nav a:hover {{ background: #e8f0fe; border-color: #aecbfa; color: #1a5fb4; }}
-    nav a.active {{ background: #1a5fb4; color: #fff; border-color: #1a5fb4; }}
+<div class="view-panels">
+  {original_block}
+  {dithered_block}
+</div>
 
-    .views {{
-      display: flex;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      gap: 1.25rem;
-      margin-bottom: 1.25rem;
-    }}
-    .panel-original {{
-      flex: 0 1 260px;
-      max-width: 280px;
-    }}
-    .panel-dithered {{
-      flex: 0 0 auto;
-    }}
-    .panel-view {{
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 12px;
-      padding: 1rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }}
-    .panel-view h2 {{ font-size: 0.92rem; font-weight: 600; color: #3c4043; margin-bottom: 0.35rem; }}
-    .hint {{ font-size: 0.78rem; color: #80868b; margin-bottom: 0.75rem; }}
-    .preview-frame {{
-      overflow: auto;
-      max-width: 100%;
-      border-radius: 8px;
-      border: 1px solid #e8eaed;
-      background: #eceff1;
-    }}
-    .preview-img {{
-      display: block;
-      width: {FRAME_WIDTH}px;
-      height: {FRAME_HEIGHT}px;
-      max-width: none;
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
-    }}
-    .original-img {{
-      display: block;
-      width: 100%;
-      max-width: 240px;
-      height: auto;
-      border-radius: 8px;
-      border: 1px solid #e8eaed;
-      background: #eceff1;
-    }}
+{controls_block}
 
-    .controls {{
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 12px;
-      padding: 1.15rem 1.25rem;
-      margin-bottom: 1.25rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }}
-    .controls h2 {{ font-size: 0.92rem; font-weight: 600; margin-bottom: 0.85rem; color: #3c4043; }}
+<p style="margin-top:1.25rem;font-size:0.88rem"><a href="{html.escape(back_href)}">← Back</a></p>"""
 
-    .dither-toggle {{
-      display: flex;
-      gap: 0.5rem;
-      margin-bottom: 1rem;
-      flex-wrap: wrap;
-    }}
-    .toggle-option {{
-      flex: 1;
-      min-width: 130px;
-      cursor: pointer;
-    }}
-    .toggle-option input {{ display: none; }}
-    .toggle-option span {{
-      display: block;
-      text-align: center;
-      padding: 0.55rem 0.75rem;
-      border-radius: 8px;
-      border: 2px solid #dadce0;
-      font-size: 0.82rem;
-      font-weight: 500;
-      color: #3c4043;
-      transition: all 0.15s;
-    }}
-    .toggle-option input:checked + span {{
-      border-color: #1a5fb4;
-      background: #e8f0fe;
-      color: #1a5fb4;
-    }}
-
-    button {{
-      background: #1a5fb4;
-      color: #fff;
-      border: none;
-      padding: 0.65rem 1.4rem;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.92rem;
-      font-weight: 600;
-    }}
-    button:hover {{ background: #1557a0; }}
-
-    .back {{ font-size: 0.88rem; }}
-    .back a {{ color: #1a5fb4; text-decoration: none; }}
-    .back a:hover {{ text-decoration: underline; }}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <nav>
-      <a href="/gallery" class="{nav_gallery}">Gallery</a>
-      <a href="/google">Google Photos</a>
-      <a href="/preview" class="{nav_preview}">Preview</a>
-      <a href="/upload">Quick test upload</a>
-    </nav>
-
-    <h1>{heading}</h1>
-    <p class="sub">{sub_text}</p>
-
-    <div class="views">
-      {original_block}
-      {dithered_block}
-    </div>
-
-    {controls_block}
-
-    <p class="back"><a href="{html.escape(back_href)}">← Back to gallery</a></p>
-  </div>
-</body>
-</html>"""
+    return page_shell(
+        title=safe_name,
+        nav_active=nav_active,
+        body_html=body,
+        flash=flash,
+        flash_kind=flash_kind,
+        use_sidebar=False,
+        show_change=True,
+    )

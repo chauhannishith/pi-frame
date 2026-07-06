@@ -173,7 +173,14 @@ def get_library_status(source_dir: str | Path, state_path: str | Path | None = N
         "next_index": state["current_index"] % len(images) if images else 0,
         "last_source": state.get("last_source"),
         "last_processed_at": state.get("last_processed_at"),
-        "images": [{"name": p.name, "size_kb": round(p.stat().st_size / 1024)} for p in images],
+        "images": [
+            {
+                "name": p.name,
+                "size_kb": round(p.stat().st_size / 1024),
+                "mtime": p.stat().st_mtime,
+            }
+            for p in images
+        ],
     }
 
 

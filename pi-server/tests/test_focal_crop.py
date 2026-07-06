@@ -95,6 +95,20 @@ class TestResizeSmartFocal:
         assert result.size == (800, 480)
         assert result.getpixel((0, 0)) == (255, 255, 255)
 
+    def test_square_on_portrait_canvas_crops_to_exact_frame(self):
+        src = Image.new("RGB", (1000, 1000), (180, 180, 180))
+        layout = resize_smart_focal(src, 480, 800)
+        assert layout.frame_size == (480, 800)
+        assert layout.content.size == (480, 800)
+
+    def test_tall_image_on_portrait_canvas_never_exceeds_width(self):
+        src = Image.new("RGB", (750, 1000), (200, 200, 200))
+        layout = resize_smart_focal(src, 480, 800)
+        content_w, content_h = layout.content.size
+        frame_w, frame_h = layout.frame_size
+        assert content_w <= frame_w
+        assert content_h == frame_h
+
     def test_cover_mode_uses_smart_focal(self):
         src = Image.new("RGB", (1200, 800), (80, 90, 100))
         result = resize_for_display(src, 800, 480, mode=ResizeMode.COVER)

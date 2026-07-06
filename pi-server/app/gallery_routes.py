@@ -1,4 +1,4 @@
-"""Gallery routes — drive-like image library with CHANGE button."""
+"""Gallery routes — Stitch-inspired library hub."""
 
 from __future__ import annotations
 
@@ -6,8 +6,24 @@ import html
 
 from flask import Blueprint, abort, redirect, request, send_file, url_for
 
-from config import DITHER_METHOD, SOURCE_IMAGES_DIR
-from frame_service import change_frame, process_specific_image
+from config import SOURCE_IMAGES_DIR
+from frame_service import (
+    change_frame,
+    format_quick_action_message,
+    generate_preview,
+    process_specific_image,
+    toggle_frame_dither,
+    toggle_frame_orientation,
+)
+from processing.frame_orientation import orientation_label
+from settings_store import (
+    format_frame_output_status,
+    get_active_dither_method,
+    get_default_dither_method,
+    get_frame_orientation,
+    set_frame_orientation,
+)
+from ui.dither_controls import dither_method_label
 from user_errors import format_user_error
 from library import (
     add_to_library,
@@ -16,442 +32,218 @@ from library import (
     get_library_status,
     resolve_library_file,
 )
-from preview_views import DITHER_OPTIONS, render_image_view_page
+from preview_views import render_image_view_page
 from thumbnails import get_or_create_thumbnail
+from ui.layout import gallery_sidebar, page_shell
 
 gallery_bp = Blueprint("gallery", __name__)
 
-GALLERY_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>pi-frame gallery</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      background: #f0f2f5;
-      color: #1a1a1a;
-      min-height: 100vh;
-      padding: 2rem 1.25rem 3rem;
-    }
-    .wrap { max-width: 960px; margin: 0 auto; }
-    header { margin-bottom: 1.75rem; }
-    h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.35rem; }
-    .sub { color: #5f6368; font-size: 0.92rem; line-height: 1.5; }
+_GALLERY_JS = """
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var bulkForm = document.getElementById("bulk-delete-form");
+  var selectAll = document.getElementById("select-all");
+  var deleteBtn = document.getElementById("bulk-delete-btn");
+  var countEl = document.getElementById("sel-count");
+  if (!bulkForm || !selectAll || !deleteBtn) return;
 
-    nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin: 1.25rem 0 1.75rem;
-    }
-    nav a {
-      color: #3c4043;
-      text-decoration: none;
-      font-size: 0.88rem;
-      font-weight: 500;
-      padding: 0.45rem 0.9rem;
-      border-radius: 999px;
-      background: #fff;
-      border: 1px solid #dadce0;
-      transition: background 0.15s, border-color 0.15s;
-    }
-    nav a:hover { background: #e8f0fe; border-color: #aecbfa; color: #1a5fb4; }
-    nav a.active { background: #1a5fb4; color: #fff; border-color: #1a5fb4; }
+  function boxes() {
+    return Array.prototype.slice.call(document.querySelectorAll(".card-select-input"));
+  }
 
-    .status {
-      background: #fff;
-      padding: 1rem 1.15rem;
-      border-radius: 12px;
-      margin-bottom: 1.25rem;
-      font-size: 0.88rem;
-      line-height: 1.7;
-      border: 1px solid #e0e0e0;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }
-    .status strong { color: #1a5fb4; }
+  function selectedCount() {
+    return boxes().filter(function (b) { return b.checked; }).length;
+  }
 
-    .actions {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1rem;
-      margin-bottom: 2rem;
-    }
-    .panel {
-      padding: 1.15rem 1.25rem;
-      border: 1px solid #e0e0e0;
-      border-radius: 12px;
-      background: #fff;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    }
-    .panel h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.85rem; color: #3c4043; }
-    input[type="file"] { width: 100%; margin-bottom: 0.75rem; font-size: 0.85rem; }
-    button, .btn {
-      background: #3c4043;
-      color: #fff;
-      border: none;
-      padding: 0.55rem 1.1rem;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.88rem;
-      font-weight: 500;
-      transition: background 0.15s;
-    }
-    button:hover { background: #202124; }
-    .btn-change { background: #1a5fb4; padding: 0.7rem 1.6rem; font-size: 0.95rem; }
-    .btn-change:hover { background: #1557a0; }
-    .btn-danger { background: transparent; color: #c5221f; border: 1px solid #f5aca3; padding: 0.25rem 0.55rem; font-size: 0.75rem; }
-    .btn-danger:hover { background: #fce8e6; }
-
-    .section-title {
-      font-size: 1rem;
-      font-weight: 600;
-      margin-bottom: 1rem;
-      color: #3c4043;
-    }
-
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 1.1rem;
-    }
-
-    .card.selected {
-      border-color: #c5221f;
-      box-shadow: 0 4px 14px rgba(197, 34, 31, 0.15);
-    }
-
-    .card-select {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      z-index: 4;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 1.35rem;
-      height: 1.35rem;
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px solid #dadce0;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .card-select input {
-      width: 0.95rem;
-      height: 0.95rem;
-      margin: 0;
-      cursor: pointer;
-    }
-
-    .bulk-bar {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.75rem 1rem;
-      margin-bottom: 1rem;
-      padding: 0.75rem 1rem;
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 10px;
-    }
-    .bulk-bar label {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      font-size: 0.85rem;
-      color: #3c4043;
-      cursor: pointer;
-      user-select: none;
-    }
-    .bulk-bar #bulk-delete-btn:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-
-    .card {
-      position: relative;
-      border: 2px solid #e8eaed;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #fff;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
-      transition: box-shadow 0.15s, border-color 0.15s;
-    }
-    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-
-    .card.active {
-      border-color: #1a5fb4;
-      box-shadow: 0 4px 14px rgba(26,95,180,0.22);
-    }
-
-    .thumb-wrap {
-      position: relative;
-      height: 150px;
-      background: #eceff1;
-      overflow: hidden;
-    }
-    .thumb-wrap img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-
-    /* dog-ear corner on active card */
-    .card.active .thumb-wrap::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      right: 0;
-      z-index: 2;
-      width: 0;
-      height: 0;
-      border-style: solid;
-      border-width: 0 42px 42px 0;
-      border-color: transparent #1a5fb4 transparent transparent;
-    }
-    .card.active .thumb-wrap::after {
-      content: "●";
-      position: absolute;
-      top: 7px;
-      right: 9px;
-      z-index: 3;
-      color: #fff;
-      font-size: 0.55rem;
-      line-height: 1;
-    }
-
-    .badge-on-frame {
-      display: none;
-      position: absolute;
-      bottom: 8px;
-      left: 8px;
-      z-index: 2;
-      background: rgba(26, 95, 180, 0.92);
-      color: #fff;
-      font-size: 0.68rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      text-transform: uppercase;
-      padding: 3px 8px;
-      border-radius: 4px;
-    }
-    .card.active .badge-on-frame { display: block; }
-
-    .card-body {
-      padding: 0.65rem 0.75rem 0.75rem;
-      font-size: 0.78rem;
-      color: #5f6368;
-    }
-    .card-name {
-      display: block;
-      font-weight: 500;
-      color: #202124;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      margin-bottom: 0.15rem;
-    }
-    .card-meta { font-size: 0.72rem; color: #80868b; margin-bottom: 0.45rem; }
-    .card-body form { margin: 0; }
-
-    .thumb-link {
-      display: block;
-      color: inherit;
-      text-decoration: none;
-      cursor: pointer;
-    }
-    .thumb-link:hover .thumb-wrap img { opacity: 0.92; }
-
-    .empty {
-      color: #80868b;
-      font-style: italic;
-      padding: 3rem 2rem;
-      text-align: center;
-      border: 2px dashed #dadce0;
-      border-radius: 12px;
-      background: #fff;
-    }
-    .flash {
-      padding: 0.75rem 1rem;
-      border-radius: 10px;
-      margin-bottom: 1.25rem;
-      font-size: 0.88rem;
-    }
-    .flash-ok { background: #e6f4ea; border: 1px solid #a8dab5; color: #137333; }
-    .flash-err { background: #fce8e6; border: 1px solid #f5aca3; color: #c5221f; }
-  </style>
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      var bulkForm = document.getElementById("bulk-delete-form");
-      var selectAll = document.getElementById("select-all");
-      var deleteBtn = document.getElementById("bulk-delete-btn");
-      var countEl = document.getElementById("sel-count");
-      if (!bulkForm || !selectAll || !deleteBtn) return;
-
-      function boxes() {
-        return Array.prototype.slice.call(document.querySelectorAll(".card-select-input"));
-      }
-
-      function selectedCount() {
-        return boxes().filter(function (b) { return b.checked; }).length;
-      }
-
-      function syncUI() {
-        var count = selectedCount();
-        var total = boxes().length;
-        countEl.textContent = String(count);
-        deleteBtn.disabled = count === 0;
-        selectAll.checked = total > 0 && count === total;
-        selectAll.indeterminate = count > 0 && count < total;
-        boxes().forEach(function (box) {
-          var card = box.closest(".card");
-          if (card) card.classList.toggle("selected", box.checked);
-        });
-      }
-
-      selectAll.addEventListener("change", function () {
-        var checked = selectAll.checked;
-        boxes().forEach(function (box) { box.checked = checked; });
-        syncUI();
-      });
-
-      boxes().forEach(function (box) {
-        box.addEventListener("change", syncUI);
-      });
-
-      bulkForm.addEventListener("submit", function (event) {
-        var count = selectedCount();
-        if (count === 0) {
-          event.preventDefault();
-          return;
-        }
-        if (!confirm("Delete " + count + " selected image(s)?")) {
-          event.preventDefault();
-        }
-      });
-
-      syncUI();
+  function syncUI() {
+    var count = selectedCount();
+    var total = boxes().length;
+    countEl.textContent = String(count);
+    deleteBtn.disabled = count === 0;
+    selectAll.checked = total > 0 && count === total;
+    selectAll.indeterminate = count > 0 && count < total;
+    boxes().forEach(function (box) {
+      var card = box.closest(".photo-card");
+      if (card) card.classList.toggle("selected", box.checked);
     });
-  </script>
-</head>
-<body>
-  <div class="wrap">
-    <header>
-      <h1>Image library</h1>
-      <p class="sub">Upload photos here — the frame cycles through them daily or when you hit CHANGE.</p>
-    </header>
+  }
 
-    <nav>
-      <a href="/gallery" class="active">Gallery</a>
-      <a href="/google">Google Photos</a>
-      <a href="/preview">Preview</a>
-      <a href="/upload">Quick test upload</a>
-    </nav>
+  selectAll.addEventListener("change", function () {
+    var checked = selectAll.checked;
+    boxes().forEach(function (box) { box.checked = checked; });
+    syncUI();
+  });
 
-    {flash}
+  boxes().forEach(function (box) {
+    box.addEventListener("change", syncUI);
+  });
 
-    <div class="status">
-      <strong>{count}</strong> image(s) in library &nbsp;·&nbsp;
-      On frame: <strong>{last_source}</strong><br>
-      Last processed: {last_processed} &nbsp;·&nbsp;
-      Next up: <strong>{next_name}</strong>
-    </div>
+  bulkForm.addEventListener("submit", function (event) {
+    var count = selectedCount();
+    if (count === 0) {
+      event.preventDefault();
+      return;
+    }
+    if (!confirm("Delete " + count + " selected image(s)?")) {
+      event.preventDefault();
+    }
+  });
 
-    <div class="actions">
-      <div class="panel">
-        <h2>Change frame now</h2>
-        <form method="post" action="/gallery/change">
-          <button type="submit" class="btn-change">CHANGE</button>
-        </form>
-      </div>
-      <div class="panel">
-        <h2>Add images</h2>
-        <form method="post" action="/gallery/upload" enctype="multipart/form-data">
-          <input type="file" name="images" accept=".jpg,.jpeg,.png" multiple required>
-          <button type="submit">Upload to library</button>
-        </form>
-      </div>
-    </div>
+  syncUI();
+});
+</script>"""
 
-    <p class="section-title">Library</p>
-    {bulk_bar}
-    {grid}
-  </div>
-</body>
-</html>"""
+
+def _sort_images(images: list[dict], filter_mode: str) -> list[dict]:
+    if filter_mode == "recent":
+        return sorted(images, key=lambda i: i["mtime"], reverse=True)
+    return sorted(images, key=lambda i: i["name"].lower())
 
 
 def _render_card(img: dict, active_name: str | None) -> str:
     name = img["name"]
     safe_name = html.escape(name)
-    is_active = active_name is not None and name == active_name
-    active_class = " active" if is_active else ""
+    is_on_frame = active_name is not None and name == active_name
+    on_frame_class = " on-frame" if is_on_frame else ""
+    badge = '<span class="badge badge-frame">On frame</span>' if is_on_frame else '<span class="badge badge-library">In library</span>'
+
     return f"""
-    <div class="card{active_class}">
-      <label class="card-select" title="Select for deletion">
-        <input type="checkbox" class="card-select-input" name="filenames" value="{safe_name}" form="bulk-delete-form">
-      </label>
-      <a class="thumb-link" href="/gallery/view/{safe_name}">
-        <div class="thumb-wrap">
-          <span class="badge-on-frame">On frame</span>
-          <img src="/gallery/thumb/{safe_name}" alt="{safe_name}" loading="lazy">
-        </div>
-      </a>
-      <div class="card-body">
-        <span class="card-name" title="{safe_name}">{safe_name}</span>
-        <span class="card-meta">{img['size_kb']} KB</span>
-        <form method="post" action="/gallery/delete/{safe_name}">
-          <button type="submit" class="btn-danger" onclick="return confirm('Delete {safe_name}?')">Delete</button>
-        </form>
-      </div>
-    </div>"""
+<div class="photo-card{on_frame_class}">
+  <label class="card-select" title="Select for deletion">
+    <input type="checkbox" class="card-select-input" name="filenames" value="{safe_name}" form="bulk-delete-form">
+  </label>
+  <a href="/gallery/view/{safe_name}">
+    <div class="thumb-box">
+      {badge}
+      <img src="/gallery/thumb/{safe_name}" alt="{safe_name}" loading="lazy">
+    </div>
+  </a>
+  <div class="card-foot">
+    <span class="card-name" title="{safe_name}">{safe_name}</span>
+    <div class="card-actions">
+      <a href="/gallery/view/{safe_name}" class="btn btn-ghost" title="Preview dithering">Preview</a>
+      <form method="post" action="/gallery/delete/{safe_name}" style="margin:0">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Delete {safe_name}?')">Del</button>
+      </form>
+    </div>
+  </div>
+</div>"""
 
 
-def _render_gallery(flash: str = "", flash_class: str = "flash-ok") -> str:
+def _render_gallery(
+    flash: str = "",
+    flash_kind: str = "ok",
+    filter_mode: str = "all",
+) -> str:
     status = get_library_status(SOURCE_IMAGES_DIR)
-    images = status["images"]
+    images = _sort_images(status["images"], filter_mode)
     next_idx = status["next_index"]
-    next_name = images[next_idx]["name"] if images else "—"
+    next_name = status["images"][next_idx]["name"] if status["images"] else "—"
     last_source = status["last_source"] or "—"
-    last_processed = status["last_processed_at"] or "—"
     active_name = status.get("last_source")
+    frame_status, frame_filename, frame_time = format_frame_output_status(
+        status.get("last_source"),
+        status.get("last_processed_at"),
+    )
+
+    all_active = "active" if filter_mode != "recent" else ""
+    recent_active = "active" if filter_mode == "recent" else ""
 
     if images:
         bulk_bar = """
-    <form id="bulk-delete-form" method="post" action="/gallery/delete-selected">
-      <div class="bulk-bar">
-        <label><input type="checkbox" id="select-all"> Select all</label>
-        <button type="submit" class="btn-danger" id="bulk-delete-btn" disabled>Delete selected (<span id="sel-count">0</span>)</button>
-      </div>
-    </form>"""
+<form id="bulk-delete-form" method="post" action="/gallery/delete-selected">
+  <div class="bulk-bar">
+    <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.85rem;cursor:pointer">
+      <input type="checkbox" id="select-all"> Select all
+    </label>
+    <button type="submit" class="btn btn-danger" id="bulk-delete-btn" disabled>
+      Delete selected (<span id="sel-count">0</span>)
+    </button>
+  </div>
+</form>"""
         cards = [_render_card(img, active_name) for img in images]
-        grid = f'<div class="grid">{"".join(cards)}</div>'
+        upload_tile = """
+<label class="upload-tile" for="gallery-upload-input">
+  <span style="font-size:1.5rem;line-height:1">+</span>
+  <span style="font-size:0.82rem;font-weight:600;margin-top:0.35rem">Add photos</span>
+</label>"""
+        grid = f'<div class="photo-grid">{upload_tile}{"".join(cards)}</div>'
     else:
         bulk_bar = ""
-        grid = '<div class="empty">No images yet — upload some photos or import from Google Photos.</div>'
+        grid = """
+<div class="empty-state">
+  <p style="margin-bottom:1rem">No images yet — upload photos or import from Google Photos.</p>
+  <form method="post" action="/gallery/upload" enctype="multipart/form-data" class="form-stack" style="max-width:20rem;margin:0 auto;text-align:left">
+    <input type="file" name="images" accept=".jpg,.jpeg,.png" multiple required>
+    <button type="submit" class="btn btn-primary">Upload to library</button>
+  </form>
+</div>"""
 
-    flash_html = f'<div class="flash {flash_class}">{html.escape(flash)}</div>' if flash else ""
-    html_out = GALLERY_HTML
-    html_out = html_out.replace("{flash}", flash_html)
-    html_out = html_out.replace("{count}", str(status["count"]))
-    html_out = html_out.replace("{last_source}", html.escape(str(last_source)))
-    html_out = html_out.replace("{last_processed}", html.escape(str(last_processed)))
-    html_out = html_out.replace("{next_name}", html.escape(str(next_name)))
-    html_out = html_out.replace("{bulk_bar}", bulk_bar)
-    html_out = html_out.replace("{grid}", grid)
-    return html_out
+    hero_upload = ""
+    if images:
+        hero_upload = """
+<form id="gallery-upload-form" method="post" action="/gallery/upload" enctype="multipart/form-data" style="display:none">
+  <input id="gallery-upload-input" type="file" name="images" accept=".jpg,.jpeg,.png" multiple
+    onchange="if(this.files.length) this.form.submit()">
+</form>"""
+
+    body = f"""
+{hero_upload}
+<div class="hero">
+  <h2>Gallery</h2>
+  <p>Upload photos, click <strong>Preview</strong> on any image to test dithering, then <strong>Push to frame</strong> when you are ready. Nothing updates the display until you push.</p>
+  <div class="hero-actions">
+    <a class="btn btn-secondary" href="/google">Import from Google</a>
+  </div>
+</div>
+
+<div class="section-head">
+  <div>
+    <h3 style="font-size:1.1rem">Library</h3>
+    <p class="sub" style="margin:0">{status["count"]} image(s)</p>
+  </div>
+  <div class="filter-chips">
+    <a href="/gallery?filter=all" class="{all_active.strip()}">All</a>
+    <a href="/gallery?filter=recent" class="{recent_active.strip()}">Recent</a>
+  </div>
+</div>
+
+{bulk_bar}
+{grid}"""
+
+    sidebar = gallery_sidebar(
+        count=status["count"],
+        last_source=str(last_source),
+        next_name=str(next_name),
+        frame_status=frame_status,
+        frame_filename=frame_filename,
+        frame_time=frame_time,
+        frame_orientation=get_frame_orientation(),
+        dither_method=get_active_dither_method(),
+    )
+
+    return page_shell(
+        title="Gallery",
+        nav_active="gallery",
+        body_html=body,
+        sidebar_html=sidebar,
+        flash=flash,
+        flash_kind=flash_kind,
+        extra_js=_GALLERY_JS,
+        show_change=True,
+    )
 
 
 @gallery_bp.route("/gallery", methods=["GET"])
 def gallery_index():
     msg = request.args.get("msg", "")
     err = request.args.get("err", "")
+    filter_mode = request.args.get("filter", "all")
+    if filter_mode not in ("all", "recent"):
+        filter_mode = "all"
     if err:
-        return _render_gallery(err, "flash-err")
-    return _render_gallery(msg)
+        return _render_gallery(err, "err", filter_mode)
+    return _render_gallery(msg, "ok", filter_mode)
 
 
 @gallery_bp.route("/gallery/upload", methods=["POST"])
@@ -513,51 +305,110 @@ def gallery_delete(filename: str):
 @gallery_bp.route("/gallery/change", methods=["POST"])
 def gallery_change():
     try:
-        name = change_frame()
+        name = change_frame(dither_method=get_default_dither_method())
     except Exception as exc:
         return redirect(url_for("gallery.gallery_index", err=f"Frame change failed: {format_user_error(exc)}"))
     if name is None:
         return redirect(url_for("gallery.gallery_index", err="Library is empty — upload an image first."))
-    return redirect(url_for("gallery.gallery_index", msg=f"Frame changed to {name}"))
+    return redirect(url_for("gallery.gallery_index", msg=f"Frame changed to {name}. Press the driver wake button to update the display."))
+
+
+def _orientation_flash_message(new_orientation: str, preview_source: str | None) -> str:
+    label = orientation_label(new_orientation)
+    if preview_source:
+        return format_quick_action_message(label, preview_source)
+    return f"Frame orientation set to {label}."
+
+
+@gallery_bp.route("/gallery/orientation", methods=["POST"])
+def gallery_orientation():
+    try:
+        new_orientation, preview_source = toggle_frame_orientation()
+    except Exception as exc:
+        return redirect(url_for("gallery.gallery_index", err=f"Orientation change failed: {format_user_error(exc)}"))
+    return redirect(url_for("gallery.gallery_index", msg=_orientation_flash_message(new_orientation, preview_source)))
+
+
+def _dither_flash_message(new_method: str, preview_source: str | None) -> str:
+    label = dither_method_label(new_method)
+    if preview_source:
+        return format_quick_action_message(label, preview_source)
+    return f"Default dither method set to {label}."
+
+
+@gallery_bp.route("/gallery/dither", methods=["POST"])
+def gallery_dither():
+    try:
+        new_method, preview_source = toggle_frame_dither()
+    except Exception as exc:
+        return redirect(url_for("gallery.gallery_index", err=f"Dither change failed: {format_user_error(exc)}"))
+    return redirect(url_for("gallery.gallery_index", msg=_dither_flash_message(new_method, preview_source)))
 
 
 @gallery_bp.route("/gallery/view/<filename>", methods=["GET", "POST"])
 def gallery_view(filename: str):
-    """Full-size view with dither method toggle and generate preview."""
     path = resolve_library_file(SOURCE_IMAGES_DIR, filename)
     if path is None:
         abort(404)
 
-    dither_method = request.values.get("dither_method", "floyd_steinberg")
-    if dither_method not in DITHER_OPTIONS:
-        dither_method = "floyd_steinberg"
+    dither_method = request.values.get("dither_method", get_default_dither_method())
+    if dither_method not in ("floyd_steinberg", "atkinson"):
+        dither_method = get_default_dither_method()
+    frame_orientation = get_frame_orientation()
 
     if request.method == "POST":
+        action = request.form.get("action", "preview")
+        if action == "orientation":
+            frame_orientation = "portrait" if frame_orientation == "landscape" else "landscape"
+            set_frame_orientation(frame_orientation)
+            action = "preview"
         try:
-            process_specific_image(path, dither_method=dither_method)
+            if action == "push":
+                process_specific_image(
+                    path,
+                    dither_method=dither_method,
+                    frame_orientation=frame_orientation,
+                )
+            else:
+                generate_preview(
+                    path,
+                    dither_method=dither_method,
+                    frame_orientation=frame_orientation,
+                )
         except Exception as exc:
-            return redirect(url_for("gallery.gallery_index", err=f"Preview failed: {format_user_error(exc)}"))
-        return redirect(url_for(
-            "gallery.gallery_view",
-            filename=filename,
-            generated=1,
-            method=dither_method,
-        ))
+            label = "Push" if action == "push" else "Preview"
+            return redirect(url_for("gallery.gallery_index", err=f"{label} failed: {format_user_error(exc)}"))
+        params = {
+            "filename": filename,
+            "generated": 1,
+            "method": dither_method,
+            "orientation": frame_orientation,
+        }
+        if action == "push":
+            params["pushed"] = 1
+        return redirect(url_for("gallery.gallery_view", **params))
 
     show_dithered = request.args.get("generated") == "1"
     if show_dithered:
         dither_method = request.args.get("method", dither_method)
-        if dither_method == "default":
-            dither_method = DITHER_METHOD
-        if dither_method not in DITHER_OPTIONS:
-            dither_method = "floyd_steinberg"
+        if dither_method not in ("floyd_steinberg", "atkinson"):
+            dither_method = get_default_dither_method()
+        frame_orientation = get_frame_orientation()
+
+    flash = ""
+    flash_kind = "ok"
+    if request.args.get("pushed") == "1":
+        flash = "Pushed to frame. Press the driver wake button to update the display."
 
     return render_image_view_page(
         source_name=filename,
         original_url=url_for("gallery.gallery_file", filename=filename),
         form_action=url_for("gallery.gallery_view", filename=filename),
         dither_method=dither_method,
+        frame_orientation=frame_orientation,
         show_dithered=show_dithered,
+        flash=flash,
+        flash_kind=flash_kind,
     )
 
 
