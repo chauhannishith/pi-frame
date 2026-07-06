@@ -11,7 +11,6 @@ from flask import Flask, abort, redirect, send_file, url_for
 from gallery_routes import gallery_bp
 from google_routes import google_bp
 from settings_routes import settings_bp
-from settings_store import record_driver_fetch
 
 from config import (
     FLASK_HOST,
@@ -59,7 +58,6 @@ def preview_image():
 def get_latest_frame():
     if not os.path.isfile(LATEST_FRAME_PATH):
         abort(404, description="No frame available yet")
-    record_driver_fetch()
     return send_file(
         LATEST_FRAME_PATH,
         mimetype="application/octet-stream",

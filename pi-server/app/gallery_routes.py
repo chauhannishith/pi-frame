@@ -8,7 +8,7 @@ from flask import Blueprint, abort, redirect, request, send_file, url_for
 
 from config import SOURCE_IMAGES_DIR
 from frame_service import change_frame, generate_preview, process_specific_image
-from settings_store import format_next_driver_wake, get_default_dither_method
+from settings_store import format_frame_output_status, get_default_dither_method
 from user_errors import format_user_error
 from library import (
     add_to_library,
@@ -126,7 +126,10 @@ def _render_gallery(
     next_name = status["images"][next_idx]["name"] if status["images"] else "—"
     last_source = status["last_source"] or "—"
     active_name = status.get("last_source")
-    driver_wake_label = format_next_driver_wake()
+    frame_status, frame_filename, frame_time = format_frame_output_status(
+        status.get("last_source"),
+        status.get("last_processed_at"),
+    )
 
     all_active = "active" if filter_mode != "recent" else ""
     recent_active = "active" if filter_mode == "recent" else ""
@@ -197,7 +200,9 @@ def _render_gallery(
         count=status["count"],
         last_source=str(last_source),
         next_name=str(next_name),
-        driver_wake_label=driver_wake_label,
+        frame_status=frame_status,
+        frame_filename=frame_filename,
+        frame_time=frame_time,
     )
 
     return page_shell(

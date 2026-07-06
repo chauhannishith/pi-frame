@@ -115,7 +115,9 @@ def gallery_sidebar(
     count: int,
     last_source: str,
     next_name: str,
-    driver_wake_label: str,
+    frame_status: str,
+    frame_filename: str,
+    frame_time: str,
 ) -> str:
     return f"""
 <div class="sidebar-section">
@@ -125,11 +127,9 @@ def gallery_sidebar(
   <div class="stat-card">Next up: <strong>{html.escape(next_name)}</strong></div>
 </div>
 <div class="sidebar-section">
-  <p class="sidebar-label">Driver</p>
-  <div class="stat-card">{html.escape(driver_wake_label)}</div>
-  <p style="font-size:0.78rem;color:var(--on-surface-muted);line-height:1.5;margin-top:0.35rem">
-    Timer wake is set in firmware. Press GPIO 12 anytime for an immediate fetch.
-  </p>
+  <p class="sidebar-label">Frame output</p>
+  <div class="stat-card"><strong>{html.escape(frame_status)}</strong></div>
+  <div class="stat-card">{html.escape(frame_filename)} · {html.escape(frame_time)}</div>
 </div>
 <div class="sidebar-section">
   <p class="sidebar-label">Display</p>

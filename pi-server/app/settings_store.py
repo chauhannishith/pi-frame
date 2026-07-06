@@ -6,24 +6,24 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import DATA_DIR, DITHER_METHOD, DRIVER_WAKE_INTERVAL_SECONDS
+from config import DATA_DIR, DITHER_METHOD
 
 SETTINGS_PATH = Path(DATA_DIR) / "settings.json"
 
 _SETTING_KEYS = (
     "default_dither_method",
-    "last_driver_fetch_at",
     "last_preview_source",
     "last_preview_dither",
+    "last_preview_at",
 )
 
 
 def _default_settings() -> dict:
     return {
         "default_dither_method": DITHER_METHOD,
-        "last_driver_fetch_at": None,
         "last_preview_source": None,
         "last_preview_dither": None,
+        "last_preview_at": None,
     }
 
 
@@ -55,47 +55,58 @@ def set_default_dither_method(method: str) -> None:
     save_settings(settings)
 
 
-def record_driver_fetch() -> None:
-    """Record when the ESP32 driver last fetched latest_frame.bin."""
-    settings = load_settings()
-    settings["last_driver_fetch_at"] = datetime.now(timezone.utc).isoformat()
-    save_settings(settings)
-
-
 def record_preview(source_name: str, dither_method: str) -> None:
     """Record which image and dither method produced the current preview.png."""
     settings = load_settings()
     settings["last_preview_source"] = source_name
     settings["last_preview_dither"] = dither_method
+    settings["last_preview_at"] = datetime.now(timezone.utc).isoformat()
     save_settings(settings)
 
 
-def get_last_preview() -> tuple[str | None, str | None]:
-    settings = load_settings()
-    return settings.get("last_preview_source"), settings.get("last_preview_dither")
-
-
-def format_next_driver_wake() -> str:
-    """Countdown to the next scheduled ESP32 timer wake (firmware interval)."""
-    last_fetch_at = load_settings().get("last_driver_fetch_at")
-    interval = DRIVER_WAKE_INTERVAL_SECONDS
-
-    if not last_fetch_at:
-        return "Next driver wake: unknown (not fetched yet)"
-
+def _format_relative_time(iso: str | None) -> str:
+    if not iso:
+        return "unknown"
     try:
-        last = datetime.fromisoformat(last_fetch_at)
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
-        next_at = last.timestamp() + interval
-        remaining = int(next_at - datetime.now(timezone.utc).timestamp())
+        dt = datetime.fromisoformat(iso)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        seconds = int(datetime.now(timezone.utc).timestamp() - dt.timestamp())
     except (TypeError, ValueError):
-        return "Next driver wake: unknown"
+        return "unknown"
 
-    if remaining <= 0:
-        return "Next driver wake: due now"
-    hours, rem = divmod(remaining, 3600)
-    minutes = rem // 60
-    if hours:
-        return f"Next driver wake: in {hours}h {minutes}m"
-    return f"Next driver wake: in {minutes}m"
+    if seconds < 60:
+        return "just now"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h {minutes % 60}m ago"
+    days = hours // 24
+    return f"{days}d ago"
+
+
+def format_frame_output_status(
+    on_frame_source: str | None,
+    last_processed_at: str | None,
+) -> tuple[str, str, str]:
+    """
+    Return (status_label, filename, relative_time) for the sidebar frame output section.
+
+    status_label is either "Ready to push" or "On frame".
+    """
+    settings = load_settings()
+    preview_source = settings.get("last_preview_source")
+    preview_at = settings.get("last_preview_at")
+
+    if preview_source:
+        on_frame = on_frame_source is not None and preview_source == on_frame_source
+        status = "On frame" if on_frame else "Ready to push"
+        time_at = preview_at or last_processed_at
+        return status, preview_source, _format_relative_time(time_at)
+
+    if on_frame_source:
+        return "On frame", on_frame_source, _format_relative_time(last_processed_at)
+
+    return "No preview yet", "—", "—"
