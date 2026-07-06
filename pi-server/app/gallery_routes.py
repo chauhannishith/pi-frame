@@ -10,11 +10,7 @@ from flask import Blueprint, abort, redirect, request, send_file, url_for
 
 from config import PREVIEW_PATH, SOURCE_IMAGES_DIR
 from frame_service import change_frame, generate_preview, process_specific_image
-from settings_store import (
-    format_next_rotation,
-    get_default_dither_method,
-    get_processing_interval_seconds,
-)
+from settings_store import format_next_driver_wake, get_default_dither_method
 from user_errors import format_user_error
 from library import (
     add_to_library,
@@ -152,9 +148,7 @@ def _render_gallery(
     next_name = status["images"][next_idx]["name"] if status["images"] else "—"
     last_source = status["last_source"] or "—"
     active_name = status.get("last_source")
-    interval = get_processing_interval_seconds()
-    interval_hours = interval / 3600
-    rotate_label = format_next_rotation(status.get("last_processed_at"), interval)
+    driver_wake_label = format_next_driver_wake()
 
     all_active = "active" if filter_mode != "recent" else ""
     recent_active = "active" if filter_mode == "recent" else ""
@@ -227,8 +221,7 @@ def _render_gallery(
         count=status["count"],
         last_source=str(last_source),
         next_name=str(next_name),
-        next_rotate_label=rotate_label,
-        interval_hours=interval_hours,
+        driver_wake_label=driver_wake_label,
     )
 
     return page_shell(

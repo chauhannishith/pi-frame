@@ -11,8 +11,9 @@ GOOGLE_TOKEN_PATH = os.environ.get("GOOGLE_TOKEN_PATH", f"{DATA_DIR}/google_toke
 FRAME_WIDTH = int(os.environ.get("FRAME_WIDTH", "800"))
 FRAME_HEIGHT = int(os.environ.get("FRAME_HEIGHT", "480"))
 
-PROCESSING_INTERVAL_SECONDS = int(
-    os.environ.get("PROCESSING_INTERVAL_SECONDS", str(24 * 60 * 60))
+# ESP32 deep-sleep timer — must match hardware-drivers/esp32_driver/config.h DEEP_SLEEP_US
+DRIVER_WAKE_INTERVAL_SECONDS = int(
+    os.environ.get("DRIVER_WAKE_INTERVAL_SECONDS", str(24 * 60 * 60))
 )
 
 FLASK_HOST = os.environ.get("FLASK_HOST", "0.0.0.0")

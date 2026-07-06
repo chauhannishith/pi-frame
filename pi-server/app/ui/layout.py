@@ -115,8 +115,7 @@ def gallery_sidebar(
     count: int,
     last_source: str,
     next_name: str,
-    next_rotate_label: str,
-    interval_hours: float,
+    driver_wake_label: str,
 ) -> str:
     return f"""
 <div class="sidebar-section">
@@ -126,10 +125,11 @@ def gallery_sidebar(
   <div class="stat-card">Next up: <strong>{html.escape(next_name)}</strong></div>
 </div>
 <div class="sidebar-section">
-  <p class="sidebar-label">Schedule</p>
-  <div class="stat-card">Auto-rotate every <strong>{interval_hours:g}h</strong></div>
-  <div class="stat-card">{html.escape(next_rotate_label)}</div>
-  <a class="btn btn-secondary" href="/settings" style="width:100%;margin-top:0.5rem">Edit schedule</a>
+  <p class="sidebar-label">Driver</p>
+  <div class="stat-card">{html.escape(driver_wake_label)}</div>
+  <p style="font-size:0.78rem;color:var(--on-surface-muted);line-height:1.5;margin-top:0.35rem">
+    Timer wake is set in firmware. Press GPIO 12 anytime for an immediate fetch.
+  </p>
 </div>
 <div class="sidebar-section">
   <p class="sidebar-label">Display</p>
