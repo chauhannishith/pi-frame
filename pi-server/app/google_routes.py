@@ -7,7 +7,6 @@ import html
 from flask import Blueprint, redirect, request, url_for
 
 from config import SOURCE_IMAGES_DIR
-from frame_service import process_specific_image
 from google_photos import (
     create_oauth_state,
     disconnect,
@@ -22,7 +21,6 @@ from google_photos import (
     picker_uri_with_autoclose,
     start_photo_pick,
 )
-from settings_store import get_default_dither_method
 from user_errors import format_user_error
 from ui.layout import page_shell
 
@@ -95,7 +93,7 @@ def _render_google_page(
     )
 
 
-def _render_pick_wait(session_id: str, library_only: bool, message: str) -> str:
+def _render_pick_wait(session_id: str, message: str) -> str:
     creds = load_credentials()
     if creds is None:
         raise RuntimeError("Google Photos not connected — visit /google/connect first")
@@ -103,11 +101,7 @@ def _render_pick_wait(session_id: str, library_only: bool, message: str) -> str:
     session = get_picker_session(creds, session_id)
     picker_uri = html.escape(picker_uri_with_autoclose(session.get("pickerUri", "")))
     refresh_seconds = _poll_interval_seconds(session)
-    wait_url = html.escape(url_for(
-        "google.google_pick_wait",
-        session_id=session_id,
-        library_only=1 if library_only else 0,
-    ))
+    wait_url = html.escape(url_for("google.google_pick_wait", session_id=session_id))
 
     body = f"""
 <h1 style="font-size:1.5rem;margin-bottom:0.75rem">Pick photos</h1>
@@ -159,13 +153,10 @@ def google_index():
         actions = """
 <div class="panel form-stack">
   <form method="post" action="/google/pick">
-    <button type="submit" class="btn btn-primary">Pick photos &amp; push first to frame</button>
-  </form>
-  <form method="post" action="/google/pick?library_only=1" style="margin-top:0.75rem">
-    <button type="submit" class="btn btn-secondary">Pick photos to library only</button>
+    <button type="submit" class="btn btn-primary">Pick photos to library</button>
   </form>
   <p style="color:var(--on-surface-muted);font-size:0.85rem;margin-top:0.75rem;line-height:1.5">
-    Select photos in Google&apos;s picker — pi-frame imports your full selection into the library for rotation.
+    Select photos in Google&apos;s picker — they are imported into the gallery. Preview and push from there.
   </p>
   <form method="post" action="/google/disconnect" style="margin-top:1.25rem">
     <button type="submit" class="btn btn-ghost">Disconnect</button>
@@ -218,44 +209,29 @@ def google_callback():
 
 @google_bp.route("/google/pick", methods=["POST"])
 def google_pick():
-    library_only = request.args.get("library_only") == "1"
     try:
         session_id, _picker_uri = start_photo_pick()
     except Exception as exc:
         return redirect(url_for("google.google_index", err=format_user_error(exc)))
 
-    return redirect(
-        url_for(
-            "google.google_pick_wait",
-            session_id=session_id,
-            library_only=1 if library_only else 0,
-        )
-    )
+    return redirect(url_for("google.google_pick_wait", session_id=session_id))
 
 
 @google_bp.route("/google/pick/wait/<session_id>", methods=["GET"])
 def google_pick_wait(session_id: str):
-    library_only = request.args.get("library_only") == "1"
     try:
         imported = import_picked_photos(session_id, SOURCE_IMAGES_DIR)
-        if library_only:
-            count = len(imported)
-            label = "photo" if count == 1 else "photos"
-            return redirect(
-                url_for(
-                    "gallery.gallery_index",
-                    msg=f"Imported {count} {label} from Google Photos",
-                )
+        count = len(imported)
+        label = "photo" if count == 1 else "photos"
+        return redirect(
+            url_for(
+                "gallery.gallery_index",
+                msg=f"Imported {count} {label} from Google Photos",
             )
-        name = process_specific_image(imported[0], dither_method=get_default_dither_method())
-        return redirect(url_for("gallery.gallery_view", filename=name, generated=1))
+        )
     except RuntimeError as exc:
         if str(exc) == "PICK_NOT_READY":
-            return _render_pick_wait(
-                session_id,
-                library_only,
-                "Waiting for your photo selection…",
-            )
+            return _render_pick_wait(session_id, "Waiting for your photo selection…")
         return redirect(url_for("google.google_index", err=format_user_error(exc)))
     except Exception as exc:
         return redirect(url_for("google.google_index", err=format_user_error(exc)))

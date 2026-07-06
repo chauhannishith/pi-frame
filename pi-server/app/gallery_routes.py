@@ -112,9 +112,7 @@ def _render_card(img: dict, active_name: str | None) -> str:
   <div class="card-foot">
     <span class="card-name" title="{safe_name}">{safe_name}</span>
     <div class="card-actions">
-      <form method="post" action="/gallery/push/{safe_name}" style="margin:0">
-        <button type="submit" class="btn btn-ghost" title="Push to frame">Push</button>
-      </form>
+      <a href="/gallery/view/{safe_name}" class="btn btn-ghost" title="Preview dithering">Preview</a>
       <form method="post" action="/gallery/delete/{safe_name}" style="margin:0">
         <button type="submit" class="btn btn-danger" onclick="return confirm('Delete {safe_name}?')">Del</button>
       </form>
@@ -203,7 +201,7 @@ def _render_gallery(
 {hero_upload}
 <div class="hero">
   <h2>Gallery</h2>
-  <p>Upload and manage photos for your e-ink frame. Use <strong>CHANGE</strong> to rotate, or <strong>Push</strong> on any card to set that image as the next frame output.</p>
+  <p>Upload photos, click <strong>Preview</strong> on any image to test dithering, then <strong>Push to frame</strong> when you are ready. Nothing updates the display until you push.</p>
   <div class="hero-actions">
     <a class="btn btn-secondary" href="/google">Import from Google</a>
   </div>
@@ -322,18 +320,6 @@ def gallery_change():
     if name is None:
         return redirect(url_for("gallery.gallery_index", err="Library is empty — upload an image first."))
     return redirect(url_for("gallery.gallery_index", msg=f"Frame changed to {name}. Press the driver wake button to update the display."))
-
-
-@gallery_bp.route("/gallery/push/<filename>", methods=["POST"])
-def gallery_push(filename: str):
-    path = resolve_library_file(SOURCE_IMAGES_DIR, filename)
-    if path is None:
-        return redirect(url_for("gallery.gallery_index", err=f"Image not found: {filename}"))
-    try:
-        process_specific_image(path, dither_method=get_default_dither_method())
-    except Exception as exc:
-        return redirect(url_for("gallery.gallery_index", err=f"Push failed: {format_user_error(exc)}"))
-    return redirect(url_for("gallery.gallery_index", msg=f"Pushed {filename} to frame. Press the driver wake button to update the display."))
 
 
 @gallery_bp.route("/gallery/view/<filename>", methods=["GET", "POST"])

@@ -8,8 +8,6 @@ from pathlib import Path
 _NAV_ITEMS = (
     ("gallery", "Gallery", "/gallery"),
     ("google", "Google Photos", "/google"),
-    ("preview", "Preview", "/preview"),
-    ("upload", "Quick test", "/upload"),
     ("settings", "Settings", "/settings"),
 )
 
@@ -26,8 +24,6 @@ def flash_html(message: str = "", kind: str = "ok") -> str:
 def top_header(nav_active: str = "gallery", *, show_change: bool = True) -> str:
     nav_links = []
     for key, label, href in _NAV_ITEMS:
-        if key == "settings":
-            continue
         active = " active" if key == nav_active else ""
         nav_links.append(f'<a href="{href}" class="{active.strip()}">{label}</a>')
     nav_html = "\n".join(nav_links)
@@ -51,7 +47,6 @@ def mobile_nav(nav_active: str = "gallery") -> str:
     icons = {
         "gallery": ("Gallery", "/gallery"),
         "google": ("Photos", "/google"),
-        "preview": ("Preview", "/preview"),
         "settings": ("Settings", "/settings"),
     }
     links = []
