@@ -129,11 +129,11 @@ Or use `docker compose` directly — see the [Makefile](pi-server/Makefile).
   ┌──────────────────────────────────────┐
   │  ESP32 driver (hardware-drivers/)    │
   │  Wi-Fi → fetch binary → SPI → panel  │
-  │  Wake: GPIO 12 button or 24 h timer  │
+  │  Wake: GPIO 12, daily HHMM, or every 12 h │
   └──────────────────────────────────────┘
 ```
 
-Nothing is processed automatically on a schedule. **You choose** when to preview or push. The ESP32 decides when to wake and fetch.
+**Daily rotation:** the Pi advances to the next gallery photo at a fixed local time (`DAILY_CHANGE_TIME`, default **03:00**). The ESP32 fetches **30 minutes later** (03:30 by default), **every 12 hours**, or when you press the **wake button**. Manual preview/push/CHANGE still work anytime.
 
 ## Web UI
 
@@ -182,6 +182,8 @@ Environment variables are loaded from `pi-server/.env` (see `docker-compose.yml`
 | `SOURCE_IMAGES_DIR` | `/app/source_images` | Photo library |
 | `DATA_DIR` | `/app/data` | Settings, rotation state, Google token |
 | `FRAME_WIDTH` / `FRAME_HEIGHT` | `800` / `480` | Panel dimensions |
+| `DAILY_CHANGE_TIME` | `0300` | Daily gallery rotation at local HHMM (uses `TZ`) |
+| `TZ` | `UTC` | Timezone for daily rotation (set in `docker-compose.yml` on Pi) |
 | `DITHER_METHOD` | `floyd_steinberg` | Default dither: `floyd_steinberg` or `atkinson` |
 | `BINARY_PACK_MODE` | `byte` | `byte` (ESP32 default) or `packed` |
 | `FLOYD_STEINBERG_ERROR_DAMPING` | `0.80` | Error diffusion strength (0.0–1.0) |
@@ -246,6 +248,7 @@ pi-frame/
 | Layer | Status |
 |---|---|
 | Web gallery (upload, preview, push, delete) | Done |
+| Daily gallery rotation (`DAILY_CHANGE_TIME`) | Done |
 | Dither + orientation + quick actions | Done |
 | HTTP frame delivery for ESP32 | Done |
 | ESP32 Wi-Fi fetch + panel driver | Done (see `esp32_driver/`) |

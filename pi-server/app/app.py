@@ -19,6 +19,7 @@ from config import (
     LATEST_FRAME_PATH,
     PREVIEW_PATH,
 )
+from daily_scheduler import start as start_daily_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +34,8 @@ app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024  # 64 MB total upload limit
 app.register_blueprint(gallery_bp)
 app.register_blueprint(google_bp)
 app.register_blueprint(settings_bp)
+
+start_daily_scheduler()
 
 
 @app.route("/")

@@ -9,6 +9,7 @@ services:
       - .env
     environment:
       TZ: Asia/Kolkata
+      # DAILY_CHANGE_TIME: "0300"   # daily gallery rotation at 03:00 local (HHMM)
       # FLASK_SECRET_KEY: dev-local-secret-change-on-pi
       # GOOGLE_REDIRECT_URI: http://localhost:5001/google/callback
     volumes:

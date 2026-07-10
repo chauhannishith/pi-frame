@@ -40,6 +40,10 @@ Edit `config.h` before flashing:
 
 - `WIFI_SSID` / `WIFI_PASSWORD`
 - `FRAME_URL` — Pi IP and port (5000 in Docker, 5001 on Mac dev host)
+- `DAILY_WAKE_HHMM` — Pi daily change time as HHMM (default `300` = 03:00), match `DAILY_CHANGE_TIME`
+- `DAILY_WAKE_OFFSET_MIN` — minutes after Pi rotation before ESP fetches (default `30` → wake 03:30)
+- `PERIODIC_WAKE_SEC` — also wake every 12 hours (default `43200`)
+- `TZ_OFFSET_SEC` — local timezone offset from UTC (default `19800` = IST, match Pi `TZ`)
 
 ## Build (Arduino IDE)
 
@@ -59,11 +63,12 @@ arduino-cli upload  --fqbn esp32:esp32:esp32 -p /dev/cu.usbserial-* hardware-dri
 
 1. Log `esp_sleep_get_wakeup_cause()` (timer vs GPIO 12 vs cold boot)
 2. Connect Wi-Fi (30 s timeout)
-3. `initPanel()` — Waveshare epd7in3e register sequence
-4. HTTP GET frame → chunk read → SPI VRAM stream (`0x10`)
-5. Full refresh (~25 s) via `0x12`
-6. Panel deep sleep (`0x07 0xA5`)
-7. ESP32 deep sleep — wake on **24 h timer** or **GPIO 12 LOW**
+3. NTP time sync (`pool.ntp.org`, `TZ_OFFSET_SEC`)
+4. `initPanel()` — Waveshare epd7in3e register sequence
+5. HTTP GET frame → chunk read → SPI VRAM stream (`0x10`)
+6. Full refresh (~25 s) via `0x12`
+7. Panel deep sleep (`0x07 0xA5`)
+8. ESP32 deep sleep — wake on **GPIO 12 LOW**, **daily `DAILY_WAKE_HHMM`**, or **every 12 h** (whichever is sooner)
 
 ## Serial monitor
 
