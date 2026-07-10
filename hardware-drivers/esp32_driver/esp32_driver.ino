@@ -65,14 +65,25 @@ static bool syncTimeNtp() {
   return false;
 }
 
+static uint16_t effectiveDailyWakeHhmm(uint16_t hhmm) {
+  int hour = static_cast<int>(hhmm / 100);
+  int minute = static_cast<int>(hhmm % 100);
+  minute += static_cast<int>(DAILY_WAKE_OFFSET_MIN);
+  hour += minute / 60;
+  minute %= 60;
+  hour %= 24;
+  return static_cast<uint16_t>(hour * 100 + minute);
+}
+
 static uint32_t secondsUntilDailyWake(uint16_t hhmm) {
+  const uint16_t wakeHhmm = effectiveDailyWakeHhmm(hhmm);
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
     return PERIODIC_WAKE_SEC;
   }
 
-  const int targetHour = static_cast<int>(hhmm / 100);
-  const int targetMin = static_cast<int>(hhmm % 100);
+  const int targetHour = static_cast<int>(wakeHhmm / 100);
+  const int targetMin = static_cast<int>(wakeHhmm % 100);
 
   struct tm next = timeinfo;
   next.tm_hour = targetHour;
@@ -99,10 +110,11 @@ static uint32_t computeSleepSeconds() {
   const uint32_t sleepSec = (untilDaily < periodic) ? untilDaily : periodic;
 
   Serial.printf(
-    "[SLEEP] Next wake in %u s (daily %02d:%02d in %u s, periodic cap %u s)\n",
+    "[SLEEP] Next wake in %u s (daily %02d:%02d +%u min in %u s, periodic cap %u s)\n",
     sleepSec,
     DAILY_WAKE_HHMM / 100,
     DAILY_WAKE_HHMM % 100,
+    DAILY_WAKE_OFFSET_MIN,
     untilDaily,
     periodic
   );

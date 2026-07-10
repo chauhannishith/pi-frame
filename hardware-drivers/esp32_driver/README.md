@@ -40,7 +40,8 @@ Edit `config.h` before flashing:
 
 - `WIFI_SSID` / `WIFI_PASSWORD`
 - `FRAME_URL` — Pi IP and port (5000 in Docker, 5001 on Mac dev host)
-- `DAILY_WAKE_HHMM` — daily fetch time as HHMM (default `300` = 03:00), match Pi `DAILY_CHANGE_TIME`
+- `DAILY_WAKE_HHMM` — Pi daily change time as HHMM (default `300` = 03:00), match `DAILY_CHANGE_TIME`
+- `DAILY_WAKE_OFFSET_MIN` — minutes after Pi rotation before ESP fetches (default `30` → wake 03:30)
 - `PERIODIC_WAKE_SEC` — also wake every 12 hours (default `43200`)
 - `TZ_OFFSET_SEC` — local timezone offset from UTC (default `19800` = IST, match Pi `TZ`)
 

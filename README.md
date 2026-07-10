@@ -133,7 +133,7 @@ Or use `docker compose` directly — see the [Makefile](pi-server/Makefile).
   └──────────────────────────────────────┘
 ```
 
-**Daily rotation:** the Pi advances to the next gallery photo at a fixed local time (`DAILY_CHANGE_TIME`, default **03:00**). The ESP32 fetches the latest frame on the same daily time (set in firmware `config.h`), **every 12 hours**, or when you press the **wake button**. Manual preview/push/CHANGE still work anytime.
+**Daily rotation:** the Pi advances to the next gallery photo at a fixed local time (`DAILY_CHANGE_TIME`, default **03:00**). The ESP32 fetches **30 minutes later** (03:30 by default), **every 12 hours**, or when you press the **wake button**. Manual preview/push/CHANGE still work anytime.
 
 ## Web UI
 
