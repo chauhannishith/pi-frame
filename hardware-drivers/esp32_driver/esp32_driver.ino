@@ -3,7 +3,8 @@
  *
  * Fetches the latest 800×480 6-color frame from the Pi Flask server and pushes
  * it to a 7.3" Spectra 6 (E6) panel over 4-wire SPI. After refresh, the ESP32
- * enters deep sleep until the 24-hour RTC timer fires or GPIO 12 is pressed.
+ * enters deep sleep until the next scheduled wake, a 12-hour periodic wake, or
+ * GPIO 12 button press.
  *
  * Target: ESP32-WROOM-32 @ 115200 baud
  * Arduino core: esp32 by Espressif (2.x+)
@@ -12,6 +13,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <esp_sleep.h>
+#include <time.h>
 
 #include "config.h"
 #include "epd_panel.h"
@@ -25,7 +27,7 @@ static void logWakeupCause() {
 
   switch (cause) {
     case ESP_SLEEP_WAKEUP_TIMER:
-      Serial.println("[BOOT] Wake cause: RTC timer (24-hour schedule)");
+      Serial.println("[BOOT] Wake cause: RTC timer (scheduled / periodic)");
       break;
     case ESP_SLEEP_WAKEUP_EXT0:
       Serial.println("[BOOT] Wake cause: GPIO 12 manual button (EXT0)");
@@ -35,6 +37,77 @@ static void logWakeupCause() {
       Serial.println("[BOOT] Wake cause: power-on / reset / first boot");
       break;
   }
+}
+
+static bool syncTimeNtp() {
+  Serial.printf("[NTP] Syncing via %s (offset %ld s)\n", NTP_SERVER, TZ_OFFSET_SEC);
+
+  configTime(TZ_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER);
+
+  struct tm timeinfo;
+  for (int attempt = 0; attempt < 20; ++attempt) {
+    if (getLocalTime(&timeinfo)) {
+      Serial.printf(
+        "[NTP] Local time %04d-%02d-%02d %02d:%02d:%02d\n",
+        timeinfo.tm_year + 1900,
+        timeinfo.tm_mon + 1,
+        timeinfo.tm_mday,
+        timeinfo.tm_hour,
+        timeinfo.tm_min,
+        timeinfo.tm_sec
+      );
+      return true;
+    }
+    delay(500);
+  }
+
+  Serial.println("[NTP] WARN: time sync failed — using periodic wake only");
+  return false;
+}
+
+static uint32_t secondsUntilDailyWake(uint16_t hhmm) {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return PERIODIC_WAKE_SEC;
+  }
+
+  const int targetHour = static_cast<int>(hhmm / 100);
+  const int targetMin = static_cast<int>(hhmm % 100);
+
+  struct tm next = timeinfo;
+  next.tm_hour = targetHour;
+  next.tm_min = targetMin;
+  next.tm_sec = 0;
+
+  const time_t nowSec = mktime(&timeinfo);
+  time_t nextSec = mktime(&next);
+  if (nextSec <= nowSec) {
+    next.tm_mday += 1;
+    nextSec = mktime(&next);
+  }
+
+  if (nextSec <= nowSec) {
+    return PERIODIC_WAKE_SEC;
+  }
+
+  return static_cast<uint32_t>(nextSec - nowSec);
+}
+
+static uint32_t computeSleepSeconds() {
+  const uint32_t untilDaily = secondsUntilDailyWake(DAILY_WAKE_HHMM);
+  const uint32_t periodic = PERIODIC_WAKE_SEC;
+  const uint32_t sleepSec = (untilDaily < periodic) ? untilDaily : periodic;
+
+  Serial.printf(
+    "[SLEEP] Next wake in %u s (daily %02d:%02d in %u s, periodic cap %u s)\n",
+    sleepSec,
+    DAILY_WAKE_HHMM / 100,
+    DAILY_WAKE_HHMM % 100,
+    untilDaily,
+    periodic
+  );
+
+  return sleepSec;
 }
 
 static bool connectWiFi() {
@@ -112,9 +185,11 @@ static void enterDeepSleep() {
   pinMode(PIN_WAKE_BUTTON, INPUT_PULLUP);
   esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(PIN_WAKE_BUTTON), 0);
 
-  esp_sleep_enable_timer_wakeup(DEEP_SLEEP_US);
+  const uint32_t sleepSec = computeSleepSeconds();
+  const uint64_t sleepUs = static_cast<uint64_t>(sleepSec) * 1000000ULL;
+  esp_sleep_enable_timer_wakeup(sleepUs);
 
-  Serial.printf("[SLEEP] RTC timer armed for %llu us (24 h)\n", DEEP_SLEEP_US);
+  Serial.printf("[SLEEP] RTC timer armed for %u s\n", sleepSec);
   Serial.println("[SLEEP] EXT0 wake armed on GPIO 12 (active LOW)");
   Serial.println("[SLEEP] Entering ESP32 deep sleep — see you on next wake");
   Serial.flush();
@@ -139,7 +214,6 @@ void setup() {
 
   logWakeupCause();
 
-  // Future manual wake button — pull-up now, EXT0 armed before deep sleep
   pinMode(PIN_WAKE_BUTTON, INPUT_PULLUP);
   Serial.println("[GPIO] Wake button on GPIO 12 (INPUT_PULLUP)");
 
@@ -149,6 +223,8 @@ void setup() {
     esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(PIN_WAKE_BUTTON), 0);
     esp_deep_sleep_start();
   }
+
+  syncTimeNtp();
 
   initPanel();
 

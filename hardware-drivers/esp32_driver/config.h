@@ -33,6 +33,14 @@ static const int PIN_SPI_MISO = 19;
 static const uint32_t SPI_CLOCK_HZ = 4000000;
 static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
 static const uint32_t HTTP_TIMEOUT_MS = 120000;
-static const uint64_t DEEP_SLEEP_US = 24ULL * 60ULL * 60ULL * 1000000ULL;  // 24 h
+
+// Wake schedule — match pi-server DAILY_CHANGE_TIME (HHMM, 24 h clock, local TZ below)
+static const uint16_t DAILY_WAKE_HHMM = 300;  // 03:00
+static const uint32_t PERIODIC_WAKE_SEC = 12UL * 3600UL;  // also wake every 12 hours
+
+// Local timezone offset for NTP (seconds east of UTC). IST = UTC+5:30 = 19800
+static const long TZ_OFFSET_SEC = 19800;
+static const int DAYLIGHT_OFFSET_SEC = 0;
+static const char* const NTP_SERVER = "pool.ntp.org";
 
 static const size_t HTTP_READ_CHUNK = 512;

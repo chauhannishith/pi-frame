@@ -15,6 +15,10 @@ FLASK_HOST = os.environ.get("FLASK_HOST", "0.0.0.0")
 FLASK_PORT = int(os.environ.get("FLASK_PORT", "5000"))
 FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-change-me-in-production")
 
+# Daily library rotation — local time HHMM (e.g. 0300 = 03:00). Uses TZ below.
+DAILY_CHANGE_TIME = os.environ.get("DAILY_CHANGE_TIME", "0300")
+TZ_NAME = os.environ.get("TZ", "UTC")
+
 # Quantization: "floyd_steinberg" or "atkinson"
 DITHER_METHOD = os.environ.get("DITHER_METHOD", "floyd_steinberg")
 

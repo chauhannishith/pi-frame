@@ -39,8 +39,9 @@ def _render_settings(flash: str = "", flash_kind: str = "ok") -> str:
     body = f"""
 <h1 style="font-size:1.5rem;margin-bottom:0.35rem">Settings</h1>
 <p style="color:var(--on-surface-muted);margin-bottom:1.5rem;line-height:1.5">
-  Default processing options for CHANGE and push-to-frame.
-  The driver wake schedule is set in ESP32 firmware (24h timer or GPIO 12 button).
+  Default processing options for CHANGE, push-to-frame, and the daily rotation job.
+  Daily rotation runs at DAILY_CHANGE_TIME (default 03:00, HHMM) in TZ.
+  The ESP32 also wakes on that time (config.h), every 12 hours, or GPIO 12 button.
 </p>
 
 <div class="panel form-stack settings-quick-actions-mobile">
