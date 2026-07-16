@@ -195,7 +195,7 @@ void sleepPanel() {
   digitalWrite(PIN_EPD_RST, LOW);
 }
 
-bool streamPiFrameToPanel(Stream& stream, uint32_t expectedBytes) {
+bool streamPiFrameToPanel(WiFiClient& stream, uint32_t expectedBytes) {
   if (expectedBytes != FRAME_BYTE_PAYLOAD) {
     Serial.printf(
       "[EPD] ERROR: expected %u byte indices, server sent %u\n",

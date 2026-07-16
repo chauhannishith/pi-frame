@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <WiFiClient.h>
 
 #include "config.h"
 
@@ -33,4 +34,4 @@ void waitUntilIdle();
 void turnOnDisplay();
 void sleepPanel();
 
-bool streamPiFrameToPanel(Stream& stream, uint32_t expectedBytes);
+bool streamPiFrameToPanel(WiFiClient& stream, uint32_t expectedBytes);
